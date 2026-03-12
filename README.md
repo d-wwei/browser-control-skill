@@ -134,6 +134,7 @@ The agent should always:
 2. Run the platform-specific preflight check.
 3. Stop and guide the user through setup if the check fails.
 4. Only continue with browser automation after the prerequisite is confirmed.
+5. If the page is lazy-loaded or infinite-scroll, scroll the real browser page first to load more content before trying other reading strategies.
 
 Once installed, the agent can:
 

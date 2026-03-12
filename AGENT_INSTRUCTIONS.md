@@ -73,6 +73,11 @@ For long pages, paginate with substring:
 osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.body.innerText.substring(0, 15000)"'
 ```
 
+For lazy-loaded or infinite-scroll pages, scroll the real page first, wait, then read again:
+```bash
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "window.scrollBy(0, window.innerHeight); \"done\";"'
+```
+
 **Get page HTML:**
 ```bash
 osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.documentElement.outerHTML.substring(0, 10000)"'
@@ -233,6 +238,8 @@ agent-browser --cdp 9222 pdf /tmp/page.pdf                # Save as PDF
 
 # JavaScript
 agent-browser --cdp 9222 eval "document.title"   # Execute JavaScript
+agent-browser --cdp 9222 eval "window.scrollBy(0, window.innerHeight); 'done'"   # Scroll down one viewport
+agent-browser --cdp 9222 eval "window.scrollTo(0, document.body.scrollHeight); 'done'"   # Scroll to bottom
 
 # Tabs
 agent-browser --cdp 9222 tab list          # List open tabs
@@ -256,16 +263,21 @@ agent-browser --cdp 9222 tab 2             # Switch to tab 2
 5. **Confirm the page is loaded**:
    - macOS: `osascript -e 'tell application "Google Chrome" to return URL of active tab of front window'`
    - Windows: `agent-browser --cdp 9222 get url`
-6. **Extract content**:
+6. **If the page is long, lazy-loaded, or infinite-scroll, scroll the real page first**:
+   - Scroll one viewport at a time.
+   - Wait 1-2 seconds after each scroll.
+   - Read again after new content appears.
+   - Prefer scrolling over alternate fetch methods when the goal is to read more of the current page.
+7. **Extract content**:
    - macOS: `osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.body.innerText.substring(0, 15000)"'`
    - Windows: `agent-browser --cdp 9222 get text`
-7. **Interact** (click, navigate, fill) using platform-specific commands.
-8. **Wait after navigation**: SPA pages need 2-3 seconds before content updates. Use `sleep 2` between navigation and reading.
+8. **Interact** (click, navigate, fill) using platform-specific commands.
+9. **Wait after navigation or scroll**: SPA pages and lazy-loaded pages need 1-3 seconds before content updates. Use `sleep 2` between scrolling/navigation and reading.
 
 ## Limitations
 
 - Cannot log in on behalf of the user — user must authenticate in Chrome first.
-- Long content must be paginated: `.substring(start, end)` on macOS, `--max-output` on Windows.
+- Long content on lazy-loaded pages should be loaded by scrolling the real page first. Use `.substring(start, end)` on macOS or `--max-output` on Windows only to paginate output after the content is present in the page.
 - SPA pages require a wait after navigation before reading updated content.
 - macOS: no screenshots; Chrome must be in foreground.
 - Windows: Chrome must be restarted with `--remote-debugging-port` flag; requires Node.js.

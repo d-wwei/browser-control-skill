@@ -30,6 +30,9 @@ osascript -e 'tell application "Google Chrome" to execute active tab of front wi
 # Read page text
 osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.body.innerText.substring(0, 15000)"'
 
+# Scroll one viewport down for lazy-loaded pages
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "window.scrollBy(0, window.innerHeight); \"done\";"'
+
 # Get URL
 osascript -e 'tell application "Google Chrome" to return URL of active tab of front window'
 
@@ -61,6 +64,7 @@ Invoke-RestMethod -Uri "http://127.0.0.1:9222/json/version"
 
 ```bash
 agent-browser --cdp 9222 get text           # Read page
+agent-browser --cdp 9222 eval "window.scrollBy(0, window.innerHeight); 'done'"   # Scroll one viewport down
 agent-browser --cdp 9222 get url            # Get URL
 agent-browser --cdp 9222 open "URL"         # Navigate
 agent-browser --cdp 9222 snapshot -i        # List interactive elements
@@ -75,6 +79,8 @@ agent-browser --cdp 9222 screenshot out.png # Screenshot
 - Always run the platform preflight check before reading, clicking, navigation, filling, or executing JavaScript.
 - If preflight fails, stop and tell the user how to satisfy the missing prerequisite.
 - Ask the user to log in before attempting to read authenticated pages.
-- Wait 2-3 seconds after clicking navigation elements before reading content (SPA pages).
-- For long pages, paginate with `.substring(0, 15000)` on macOS.
+- For lazy-loaded or infinite-scroll pages, scroll the real page first and read again after waiting 1-2 seconds.
+- Prefer scrolling the live browser page over alternate fetch methods when trying to read more of the current page.
+- Wait 2-3 seconds after clicking navigation elements or scrolling before reading content (SPA pages / lazy-loaded pages).
+- For long pages, paginate with `.substring(0, 15000)` on macOS only after the content has been loaded into the page.
 - Never run untrusted JavaScript in the user's browser session.

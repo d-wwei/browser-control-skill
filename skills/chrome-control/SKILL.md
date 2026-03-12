@@ -105,6 +105,15 @@ tell application "Google Chrome"
 end tell'
 ```
 
+For lazy-loaded or infinite-scroll pages, scroll the real page first, wait for content to load, then read again:
+
+```bash
+osascript -e '
+tell application "Google Chrome"
+    execute active tab of front window javascript "window.scrollBy(0, window.innerHeight); \"done\";"
+end tell'
+```
+
 ### Get Page HTML
 
 ```bash
@@ -369,6 +378,8 @@ agent-browser --cdp 9222 pdf /tmp/page.pdf
 
 # Execute JavaScript
 agent-browser --cdp 9222 eval "document.title"
+agent-browser --cdp 9222 eval "window.scrollBy(0, window.innerHeight); 'done'"
+agent-browser --cdp 9222 eval "window.scrollTo(0, document.body.scrollHeight); 'done'"
 
 # List open tabs
 agent-browser --cdp 9222 tab list
@@ -397,16 +408,21 @@ This workflow applies to both platforms:
 5. **Confirm the page is loaded**:
    - macOS: `osascript -e 'tell application "Google Chrome" to return URL of active tab of front window'`
    - Windows: `agent-browser --cdp 9222 get url`
-6. **Extract content**:
+6. **If the page is long, lazy-loaded, or infinite-scroll, scroll the real page first**:
+   - Scroll one viewport at a time
+   - Wait 1-2 seconds after each scroll
+   - Read again after new content appears
+   - Prefer repeated scrolling over alternate fetch methods
+7. **Extract content**:
    - macOS: `osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.body.innerText.substring(0, 15000)"'`
    - Windows: `agent-browser --cdp 9222 get text`
-7. **Interact with the page** (click, navigate, fill) using platform-specific commands above
-8. **Wait after navigation** — SPA pages may need `sleep 2` before reading updated content
+8. **Interact with the page** (click, navigate, fill) using platform-specific commands above
+9. **Wait after navigation or scroll** — SPA pages and lazy-loaded pages may need `sleep 2` before reading updated content
 
 # Common Limitations
 
 - **Requires user login**: This skill cannot log in on behalf of the user. The user must be authenticated in Chrome first.
-- **Long content**: Paginate reads with `.substring(start, end)` (macOS) or `--max-output` (Windows).
+- **Long content**: For lazy-loaded pages, scroll the real page first to load more content. Use `.substring(start, end)` (macOS) or `--max-output` (Windows) only to paginate output after content has loaded.
 - **SPA pages**: Wait 2-3 seconds after clicking navigation elements before reading content.
 - **Security**: Commands execute JavaScript in the user's authenticated session. Never run untrusted scripts.
 - **macOS-specific**: No screenshot support via AppleScript. Chrome must be in foreground.
