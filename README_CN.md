@@ -1,10 +1,22 @@
 # Chrome Control — AI 编程助手的浏览器控制能力
 
+[English README](./README.md)
+
 让 AI 编程助手直接操控你的 Chrome 浏览器，访问任何你能访问的页面——包括需要登录认证的内网页面（SSO、MFA、安全网关）。
 
 支持 **macOS** 和 **Windows**，自动检测平台并选择对应方案。
 
 兼容 **Claude Code**、**Codex**、**Cursor**、**Gemini CLI**、**Windsurf** 及任何可执行 shell 命令的 AI agent。
+
+## 这个 Skill 的独特之处
+
+这个 skill 不是为了成为“功能最全”的浏览器自动化框架，而是为了解决一个更具体的问题：让 AI 编程助手以尽可能低的接入成本，直接借用用户真实的 Chrome 登录态去访问和操作受认证页面。
+
+- **优先复用真实 Chrome 登录态**：核心思路不是新开一个自动化浏览器，而是直接继承用户已经登录的 Chrome session。
+- **把内网/认证页面当成主要场景**：SSO、MFA、企业安全网关不是边缘情况，而是这个 skill 的设计中心。
+- **跨平台策略更务实**：macOS 直接走原生 AppleScript，几乎零依赖；Windows 则走更实际的 CDP 路线。
+- **以 skill / adapter 为中心，而不是以框架为中心**：目标是让 Claude Code、Codex、Cursor、Gemini CLI 等 agent 可以直接接入，而不是先搭一整套自动化基础设施。
+- **前置条件透明**：agent 在真正执行前应先做 preflight check，环境没准备好就先停下并引导用户设置。
 
 ## 为什么需要这个 Skill？
 

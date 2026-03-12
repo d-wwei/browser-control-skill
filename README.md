@@ -1,10 +1,22 @@
 # Chrome Control — Browser Automation for AI Coding Agents
 
+[中文说明](./README_CN.md)
+
 Control your local Chrome browser directly from AI coding agents. Access any page you can access — including pages behind corporate authentication (SSO, MFA, security gateways).
 
 Supports **macOS** and **Windows**. Auto-detects platform and uses the appropriate approach.
 
 Works with **Claude Code**, **Codex**, **Cursor**, **Gemini CLI**, **Windsurf**, and any agent that can execute shell commands.
+
+## What Makes This Different
+
+This skill is not trying to be the most powerful browser automation stack. It is optimized for one specific job: letting a coding agent use the user's real Chrome session to work on authenticated pages with the lowest possible setup cost.
+
+- **Real Chrome session first**: it is designed around inheriting the user's existing login state, instead of creating a fresh automated browser session.
+- **Built for authenticated/internal pages**: SSO, MFA, and corporate gateways are the primary target, not an edge case.
+- **Pragmatic cross-platform design**: macOS uses native AppleScript with nearly zero setup; Windows uses CDP where that is the practical choice.
+- **Skill-first packaging**: this repository is structured to drop directly into Claude Code, Codex, Cursor, Gemini CLI, and similar agents, instead of asking users to assemble an automation stack first.
+- **Explicit preflight checks**: agents are expected to verify prerequisites before acting, and to stop and guide the user if the environment is not ready.
 
 ## Why This Skill?
 
