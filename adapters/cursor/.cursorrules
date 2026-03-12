@@ -1,0 +1,94 @@
+# Chrome Control — Browser Automation via User's Chrome
+
+You can control the user's local Chrome browser to access any page they are logged into, including pages behind corporate authentication (SSO, MFA). This works by operating on the user's real Chrome instance, not a headless browser.
+
+## Platform Detection
+
+Run `uname -s` first:
+- `Darwin` → macOS → use AppleScript commands
+- `MINGW*` / `CYGWIN*` / `MSYS*` → Windows → use CDP commands
+
+## macOS Commands (AppleScript)
+
+Prerequisite: user must enable Chrome → View → Developer → Allow JavaScript from Apple Events
+
+```bash
+# Get current URL
+osascript -e 'tell application "Google Chrome" to return URL of active tab of front window'
+
+# Get page text (paginate for long pages)
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.body.innerText.substring(0, 15000)"'
+
+# Get page title
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.title"'
+
+# Navigate to URL
+osascript -e 'tell application "Google Chrome" to set URL of active tab of front window to "URL_HERE"'
+
+# Click element by CSS selector
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.querySelector(\"SELECTOR\").click()"'
+
+# Click element by visible text
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "
+    var items = document.querySelectorAll(\"li, a, button, span, div\");
+    for (var i = 0; i < items.length; i++) {
+        if (items[i].textContent.trim() === \"TARGET_TEXT\" && items[i].children.length === 0) { items[i].click(); break; }
+    }
+    \"done\";"'
+
+# Fill form field
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "
+    var input = document.querySelector(\"SELECTOR\");
+    input.value = \"VALUE\";
+    input.dispatchEvent(new Event(\"input\", {bubbles: true}));
+    \"done\";"'
+
+# Execute arbitrary JS
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "JS_CODE"'
+
+# List all tabs
+osascript <<'EOF'
+tell application "Google Chrome"
+    set allTabs to {}
+    set i to 1
+    repeat with w in windows
+        set j to 1
+        repeat with t in tabs of w
+            set end of allTabs to ("w" & i & "-t" & j & ": " & URL of t)
+            set j to j + 1
+        end repeat
+        set i to i + 1
+    end repeat
+    set AppleScript's text item delimiters to linefeed
+    return allTabs as text
+end tell
+EOF
+```
+
+## Windows Commands (Chrome CDP + agent-browser)
+
+Prerequisites: `npm install -g agent-browser && agent-browser install`
+User must start Chrome with: `chrome.exe --remote-debugging-port=9222` (close Chrome fully first)
+
+```bash
+agent-browser --cdp 9222 get text           # Page text
+agent-browser --cdp 9222 get url            # Current URL
+agent-browser --cdp 9222 get title          # Page title
+agent-browser --cdp 9222 open "URL"         # Navigate
+agent-browser --cdp 9222 snapshot -i        # Interactive elements with @refs
+agent-browser --cdp 9222 click @e3          # Click by ref
+agent-browser --cdp 9222 click "#selector"  # Click by CSS
+agent-browser --cdp 9222 fill @e1 "text"    # Fill form
+agent-browser --cdp 9222 screenshot out.png # Screenshot
+agent-browser --cdp 9222 eval "JS_CODE"     # Execute JS
+agent-browser --cdp 9222 tab list           # List tabs
+```
+
+## Rules
+
+- Always detect platform with `uname -s` before running browser commands.
+- Ask user to log in first — this skill cannot authenticate on behalf of the user.
+- After clicking navigation elements, wait 2-3 seconds (`sleep 2`) before reading content.
+- Paginate long content with `.substring(start, end)` on macOS.
+- If AppleScript returns `missing value`, the JS returned undefined — ensure the expression returns a string.
+- Never execute untrusted JavaScript in the user's authenticated browser session.
