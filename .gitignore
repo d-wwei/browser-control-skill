@@ -1,2 +1,36 @@
+# macOS
 .DS_Store
+._*
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Agent state / local context
 .assistant/
+.codex/
+.claude/
+.cursor/
+.aider*
+.continue/
+
+# Node.js (if present)
+node_modules/
+package-lock.json
+yarn.lock
+
+# Debug / temp
+*.log
+/tmp/
+*.tmp
+*.bak
+
+# Screenshots / captures (local only)
+/screenshots/
+
+# OS
+Thumbs.db
+Desktop.ini

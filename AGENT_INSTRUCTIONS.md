@@ -62,7 +62,22 @@ Execute exactly ONE browser action, then return to step 1.
 ### macOS (AppleScript)
 Preferred order: element index (inject indexing script first, then operate by index) → text content match → CSS selector → coordinates (last resort only — use `document.elementFromPoint(x,y).click()`)
 
-> Inject the interactive element indexing script (see SKILL.md `List Interactive Elements`) to get a numbered list, then use `window.__interactiveElements[index]` to operate. This is the most reliable method, analogous to Windows @ref.
+> To use element indexing: inject a JS snippet via `osascript` that scans all `a[href], button, input, select, textarea, [role="button"], [onclick], [contenteditable], [tabindex]` elements, filters out hidden/zero-size ones, assigns sequential indexes from 0, and caches references in `window.__interactiveElements`. Then operate by index (e.g. `window.__interactiveElements[3].click()`). This is the most reliable method, analogous to Windows @ref.
+>
+> **Minimal inline example** — list interactive elements:
+> ```
+> osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "
+>     var els=document.querySelectorAll(\"a[href],button,input,select,textarea,[role=button],[onclick],[tabindex]\");
+>     var r=[],c=[];
+>     for(var i=0;i<els.length;i++){var e=els[i];var b=e.getBoundingClientRect();
+>       if(b.width<=0||b.height<=0||e.hidden)continue;
+>       var s=window.getComputedStyle(e);if(s.display===\"none\"||s.visibility===\"hidden\")continue;
+>       var idx=c.length;c.push(e);
+>       r.push(\"[\"+idx+\"] <\"+e.tagName.toLowerCase()+\"> \"+(e.getAttribute(\"aria-label\")||(e.textContent||\"\").trim().substring(0,60)));
+>     }window.__interactiveElements=c;r.join(\"\\n\");
+> "'
+> ```
+> Then click: `window.__interactiveElements[3].click()`; fill: `var el=window.__interactiveElements[5]; el.value='text'; el.dispatchEvent(new Event('input',{bubbles:true}));`
 
 ### Windows (agent-browser)
 Preferred order: @ref from `snapshot -i` (e.g. `@e3`) → CSS selector → JS via eval
@@ -115,7 +130,7 @@ Get page text content:
 osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.body.innerText"'
 ```
 
-> For scenarios requiring preserved structure (tables, lists, code blocks), prefer the Structured Markdown reading method described in SKILL.md `Read Page as Structured Markdown`.
+> For scenarios requiring preserved structure (tables, lists, code blocks), inject a DOM→Markdown converter JS via `osascript` instead of using plain `innerText`. The converter should prioritize `<main>`/`<article>` content, skip `script`/`style`/`nav`/`footer`, and convert headings to `#`, lists to `- `/`1. `, tables to `| col |` format, links to `[text](url)`, and code blocks to fenced markdown.
 
 For long pages, paginate with substring:
 ```bash
@@ -220,7 +235,7 @@ osascript -e 'tell application "Google Chrome" to execute active tab of front wi
 - **`missing value` returned**: JavaScript returned `undefined`/`null`. Make the JS expression explicitly return a string.
 - **Escaped quotes**: Use `\"` for double quotes inside AppleScript JavaScript strings.
 - **Multiple windows**: Commands target `front window` by default. Use `window 2`, `window 3` for others.
-- **No screenshot support**: AppleScript cannot capture browser screenshots.
+- **Screenshots**: AppleScript has no screenshot API, but `screencapture -l <windowID>` captures the Chrome window. Get the window ID: `osascript -e 'tell application "Google Chrome" to id of front window'`.
 
 ---
 
@@ -282,7 +297,7 @@ agent-browser --cdp 9222 snapshot          # Accessibility tree (best for unders
 agent-browser --cdp 9222 snapshot -i       # Interactive elements only (with @ref labels)
 ```
 
-> For scenarios requiring preserved structure (tables, lists, code blocks), use the Structured Markdown JS snippet via `agent-browser --cdp 9222 eval "..."`. See SKILL.md `Read Page as Structured Markdown`.
+> For scenarios requiring preserved structure (tables, lists, code blocks), inject a DOM→Markdown converter JS via `agent-browser --cdp 9222 eval "..."` instead of using `get text`. The converter should prioritize `<main>`/`<article>` content, skip `script`/`style`/`nav`/`footer`, and convert headings, lists, tables, links, and code blocks to Markdown format.
 
 **Navigation:**
 
@@ -342,11 +357,11 @@ agent-browser --cdp 9222 eval "window.scrollTo(0, document.body.scrollHeight); '
    - macOS: `osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.body.innerText.substring(0, 15000)"'`
    - Windows: `agent-browser --cdp 9222 get text`
 8. **Interact** (click, navigate, fill) using platform-specific commands.
-9. **Wait after navigation or scroll**: SPA pages and lazy-loaded pages need 1-3 seconds before content updates. Use `sleep 2` between scrolling/navigation and reading.
+9. **Wait after navigation or scroll**: SPA pages and lazy-loaded pages need time before content updates. Prefer smart wait (watch for target element to appear); fall back to `sleep 2` only when no specific wait condition is available.
 
 ## Best Practices
 
-1. **Smart wait after navigation**: Prefer using the smart wait script (see SKILL.md `Wait for Element`) to wait for a specific target element to appear, rather than a blind `sleep 2`. Only fall back to `sleep 2` when you cannot determine a specific element or condition to wait for.
+1. **Smart wait after navigation**: Prefer injecting a MutationObserver-based wait script that watches for a specific target element (by CSS selector + condition: `visible`/`hidden`/`attached`/`loaded`) with a timeout, rather than a blind `sleep 2`. Example approach: inject JS that calls `new MutationObserver(...)` on `document.documentElement`, checks `document.querySelector(sel)` on each mutation, and resolves with `{found: true/false, elapsed: ms}`. Only fall back to `sleep 2` when you cannot determine a specific element or condition to wait for.
 2. **Scroll before clicking**: If the target might be off-screen, scroll down first.
 3. **Confirm actions**: After each action, verify the result before proceeding.
 4. **One action at a time**: Don't chain multiple actions without observing between them.
@@ -373,7 +388,7 @@ The following are **enforced rules**, not suggestions. Violations must be refuse
 On the following domains, **only read operations are allowed** (get text, get URL, get title, read page as markdown). All click, fill, and execute operations are **forbidden**.
 
 - **Banking**: chase, wellsfargo, bankofamerica, citi, capitalone, usbank, pnc, tdbank, hsbc, and any `.bank` domain
-- **Payments**: paypal, venmo, stripe, square, wise, revolut, robinhood, coinbase, binance
+- **Payments**: paypal, venmo, stripe, squareup, wise, revolut, robinhood, coinbase, binance
 - **Identity/Auth**: `accounts.google.com`, `login.microsoftonline.com`, `login.live.com`, `icloud.com/account`, `*.okta.com`, `*.auth0.com`, `*.onelogin.com`
 - **Cloud Consoles**: `console.aws.amazon.com`, `console.cloud.google.com`, `portal.azure.com`
 - **Chrome Internal**: `chrome://`, `chrome-extension://`, `about:`
@@ -395,12 +410,13 @@ Before executing any fill or click action, check the target element. **Refuse** 
 
 ### Pre-action Safety Check
 
-Before any interaction (click/fill/execute) on an unfamiliar page, inject the `__checkSafety()` function (see SKILL.md) to programmatically verify the current URL is not on the blacklist. If the check fails, switch to read-only mode.
+Before any interaction (click/fill/execute) on an unfamiliar page, verify the current URL against the blacklist above. You can inject a JS check via `osascript` (macOS) or `agent-browser --cdp 9222 eval` (Windows) that tests `location.href` against the sensitive domain patterns listed above and returns `{safe: true/false, reason: '...'}`. If the URL matches any blacklisted pattern, switch to read-only mode.
 
 ### General Rules
 
 - Never execute untrusted or user-provided JavaScript — commands run in the user's authenticated session
 - Cross-origin iframes are not accessible
+- Do not attempt to access chrome:// pages or browser extension pages — blocked by Chrome security
 - Confirm with the user before extracting sensitive financial or medical data
 
 ## Limitations
@@ -408,6 +424,6 @@ Before any interaction (click/fill/execute) on an unfamiliar page, inject the `_
 - Cannot log in on behalf of the user — user must authenticate in Chrome first.
 - Long content on lazy-loaded pages should be loaded by scrolling the real page first. Use `.substring(start, end)` on macOS or `eval "document.body.innerText.substring(0, 15000)"` on Windows to paginate output after the content is present in the page.
 - SPA pages require a wait after navigation before reading updated content.
-- macOS: AppleScript itself has no screenshot API, but `screencapture -l <windowID>` can capture the Chrome window (see SKILL.md `Capture Page Screenshot`). Chrome must be in foreground.
+- macOS: AppleScript itself has no screenshot API, but you can capture the Chrome window using `screencapture -l <windowID> /tmp/screenshot.png` (get the window ID with `osascript -e 'tell application "Google Chrome" to id of front window'`). Chrome must be in foreground.
 - Windows: Chrome must be restarted with `--remote-debugging-port` flag; requires Node.js.
 - Security: commands execute JavaScript in the user's authenticated session. Never run untrusted scripts.

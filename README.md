@@ -30,7 +30,7 @@ AI coding agents have several ways to access web content, but none of them can h
 | **Login session** | Fully inherited — if you're logged in, Claude can access it | Fresh session, must re-login | None |
 | **Corporate auth (SSO/MFA)** | Works — it's your real browser | Usually blocked (automation fingerprint + cookie isolation) | Blocked |
 | **Install dependencies** | None on macOS; Node.js on Windows | npm + Chromium (~500MB) | API key |
-| **Screenshots** | macOS: no / Windows: yes | Yes | No |
+| **Screenshots** | macOS: via `screencapture` / Windows: yes | Yes | No |
 | **Headless mode** | No (Chrome must be open) | Yes | Inherently headless |
 | **Cross-platform** | macOS + Windows | macOS / Windows / Linux | All platforms |
 
@@ -141,7 +141,7 @@ The agent follows a structured reasoning cycle for every browser action:
 7. **ACT** — execute one action, then return to step 4.
 
 Element targeting priority:
-- **macOS**: text content match → CSS selector → element index
+- **macOS**: element index (inject indexing script) → text content match → CSS selector
 - **Windows**: @ref from `snapshot -i` → CSS selector → JavaScript eval
 
 ### Quick Start
@@ -190,7 +190,7 @@ Agent: [navigates the active tab to the URL]
 ## Limitations
 
 - Cannot log in on behalf of the user — the user must be authenticated first
-- macOS: no screenshot support via AppleScript; Chrome must be in foreground
+- macOS: AppleScript itself has no screenshot API; use `screencapture -l <windowID>` to capture the Chrome window. Chrome must be in foreground
 - Windows: Chrome must be restarted with debugging flag each session
 - Very large pages need paginated reading
 - Agent follows one-action-at-a-time principle — complex multi-step workflows may require multiple turns

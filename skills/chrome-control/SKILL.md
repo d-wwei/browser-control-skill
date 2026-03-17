@@ -85,7 +85,7 @@ Use the most reliable method available for the current platform:
 2. **CSS selector** (e.g., `"#submit-btn"`)
 3. **JavaScript via eval** (for complex targeting)
 
-Always prefer structured references (@ref on Windows, text match on macOS) over manually constructed CSS selectors — selectors are fragile and break when page structure changes.
+Always prefer structured references (@ref on Windows, element index on macOS) over manually constructed CSS selectors — selectors are fragile and break when page structure changes.
 
 ---
 
@@ -403,19 +403,23 @@ osascript <<'APPLESCRIPT'
 tell application "Google Chrome"
     execute active tab of front window javascript "
 (function(){
-  var url=location.href.toLowerCase();
-  var bankDomains=['chase','wellsfargo','bankofamerica','citi','capitalone','usbank','pnc','tdbank','hsbc'];
-  var payDomains=['paypal','venmo','stripe','square','wise','revolut','robinhood','coinbase','binance'];
-  var authPaths=['accounts.google.com','login.microsoftonline.com','login.live.com','icloud.com/account'];
-  var authWild=['.okta.com','.auth0.com','.onelogin.com'];
-  var cloudConsoles=['console.aws.amazon.com','console.cloud.google.com','portal.azure.com'];
-  if(/^chrome:|^chrome-extension:|^about:/.test(url))return JSON.stringify({safe:false,reason:'Chrome internal page'});
-  if(/\\.bank\\b/i.test(url))return JSON.stringify({safe:false,reason:'Banking domain (.bank)'});
-  for(var i=0;i<bankDomains.length;i++){if(url.indexOf(bankDomains[i]+'.')!==-1)return JSON.stringify({safe:false,reason:'Banking site: '+bankDomains[i]})}
-  for(var i=0;i<payDomains.length;i++){if(url.indexOf(payDomains[i]+'.')!==-1)return JSON.stringify({safe:false,reason:'Payment site: '+payDomains[i]})}
-  for(var i=0;i<authPaths.length;i++){if(url.indexOf(authPaths[i])!==-1)return JSON.stringify({safe:false,reason:'Auth page: '+authPaths[i]})}
-  for(var i=0;i<authWild.length;i++){if(url.indexOf(authWild[i])!==-1)return JSON.stringify({safe:false,reason:'Auth provider: '+authWild[i]})}
-  for(var i=0;i<cloudConsoles.length;i++){if(url.indexOf(cloudConsoles[i])!==-1)return JSON.stringify({safe:false,reason:'Cloud console: '+cloudConsoles[i]})}
+  var href=location.href;
+  if(/^chrome:|^chrome-extension:|^about:/.test(href))return JSON.stringify({safe:false,reason:'Chrome internal page'});
+  var u;try{u=new URL(href)}catch(e){return JSON.stringify({safe:false,reason:'Invalid URL'})}
+  var h=u.hostname.toLowerCase();
+  function endsWith(host,suffix){return host===suffix||host.slice(-(suffix.length+1))==='.'+ suffix}
+  if(h.endsWith('.bank'))return JSON.stringify({safe:false,reason:'Banking domain (.bank)'});
+  var bankDomains=['chase.com','wellsfargo.com','bankofamerica.com','citi.com','citibank.com','capitalone.com','usbank.com','pnc.com','tdbank.com','hsbc.com'];
+  for(var i=0;i<bankDomains.length;i++){if(endsWith(h,bankDomains[i]))return JSON.stringify({safe:false,reason:'Banking: '+bankDomains[i]})}
+  var payDomains=['paypal.com','venmo.com','stripe.com','squareup.com','wise.com','revolut.com','robinhood.com','coinbase.com','binance.com'];
+  for(var i=0;i<payDomains.length;i++){if(endsWith(h,payDomains[i]))return JSON.stringify({safe:false,reason:'Payment: '+payDomains[i]})}
+  var authExact=['accounts.google.com','login.microsoftonline.com','login.live.com'];
+  for(var i=0;i<authExact.length;i++){if(h===authExact[i])return JSON.stringify({safe:false,reason:'Auth: '+authExact[i]})}
+  if(endsWith(h,'icloud.com')&&u.pathname.startsWith('/account'))return JSON.stringify({safe:false,reason:'Auth: icloud.com/account'});
+  var authSuffix=['okta.com','auth0.com','onelogin.com'];
+  for(var i=0;i<authSuffix.length;i++){if(endsWith(h,authSuffix[i]))return JSON.stringify({safe:false,reason:'Auth: '+authSuffix[i]})}
+  var cloudExact=['console.aws.amazon.com','console.cloud.google.com','portal.azure.com'];
+  for(var i=0;i<cloudExact.length;i++){if(h===cloudExact[i])return JSON.stringify({safe:false,reason:'Cloud: '+cloudExact[i]})}
   window.__checkSafety=function(){return{safe:true}};
   return JSON.stringify({safe:true,reason:'OK'});
 })()
@@ -910,7 +914,7 @@ agent-browser --cdp 9222 eval "var el=window.__interactiveElements[5]; el.value=
 #### Safety Check (Pre-action)
 
 ```bash
-agent-browser --cdp 9222 eval "(function(){var url=location.href.toLowerCase();var bankDomains=['chase','wellsfargo','bankofamerica','citi','capitalone','usbank','pnc','tdbank','hsbc'];var payDomains=['paypal','venmo','stripe','square','wise','revolut','robinhood','coinbase','binance'];var authPaths=['accounts.google.com','login.microsoftonline.com','login.live.com','icloud.com/account'];var authWild=['.okta.com','.auth0.com','.onelogin.com'];var cloudConsoles=['console.aws.amazon.com','console.cloud.google.com','portal.azure.com'];if(/^chrome:|^chrome-extension:|^about:/.test(url))return JSON.stringify({safe:false,reason:'Chrome internal page'});if(/\\.bank\\b/i.test(url))return JSON.stringify({safe:false,reason:'Banking domain'});for(var i=0;i<bankDomains.length;i++){if(url.indexOf(bankDomains[i]+'.')!==-1)return JSON.stringify({safe:false,reason:'Banking: '+bankDomains[i]})}for(var i=0;i<payDomains.length;i++){if(url.indexOf(payDomains[i]+'.')!==-1)return JSON.stringify({safe:false,reason:'Payment: '+payDomains[i]})}for(var i=0;i<authPaths.length;i++){if(url.indexOf(authPaths[i])!==-1)return JSON.stringify({safe:false,reason:'Auth: '+authPaths[i]})}for(var i=0;i<authWild.length;i++){if(url.indexOf(authWild[i])!==-1)return JSON.stringify({safe:false,reason:'Auth: '+authWild[i]})}for(var i=0;i<cloudConsoles.length;i++){if(url.indexOf(cloudConsoles[i])!==-1)return JSON.stringify({safe:false,reason:'Cloud: '+cloudConsoles[i]})}return JSON.stringify({safe:true,reason:'OK'})})()"
+agent-browser --cdp 9222 eval "(function(){var href=location.href;if(/^chrome:|^chrome-extension:|^about:/.test(href))return JSON.stringify({safe:false,reason:'Chrome internal page'});var u;try{u=new URL(href)}catch(e){return JSON.stringify({safe:false,reason:'Invalid URL'})}var h=u.hostname.toLowerCase();function ew(host,sfx){return host===sfx||host.slice(-(sfx.length+1))==='.'+sfx}if(h.endsWith('.bank'))return JSON.stringify({safe:false,reason:'Banking domain (.bank)'});var bk=['chase.com','wellsfargo.com','bankofamerica.com','citi.com','citibank.com','capitalone.com','usbank.com','pnc.com','tdbank.com','hsbc.com'];for(var i=0;i<bk.length;i++){if(ew(h,bk[i]))return JSON.stringify({safe:false,reason:'Banking: '+bk[i]})}var py=['paypal.com','venmo.com','stripe.com','squareup.com','wise.com','revolut.com','robinhood.com','coinbase.com','binance.com'];for(var i=0;i<py.length;i++){if(ew(h,py[i]))return JSON.stringify({safe:false,reason:'Payment: '+py[i]})}var ax=['accounts.google.com','login.microsoftonline.com','login.live.com'];for(var i=0;i<ax.length;i++){if(h===ax[i])return JSON.stringify({safe:false,reason:'Auth: '+ax[i]})}if(ew(h,'icloud.com')&&u.pathname.startsWith('/account'))return JSON.stringify({safe:false,reason:'Auth: icloud.com/account'});var as=['okta.com','auth0.com','onelogin.com'];for(var i=0;i<as.length;i++){if(ew(h,as[i]))return JSON.stringify({safe:false,reason:'Auth: '+as[i]})}var cx=['console.aws.amazon.com','console.cloud.google.com','portal.azure.com'];for(var i=0;i<cx.length;i++){if(h===cx[i])return JSON.stringify({safe:false,reason:'Cloud: '+cx[i]})}return JSON.stringify({safe:true,reason:'OK'})})()"
 ```
 
 #### Wait for Element
@@ -972,7 +976,7 @@ This workflow applies to both platforms:
    - macOS: `osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.body.innerText.substring(0, 15000)"'`
    - Windows: `agent-browser --cdp 9222 get text`
 8. **Interact with the page** (click, navigate, fill) using platform-specific commands above
-9. **Wait after navigation or scroll** — SPA pages and lazy-loaded pages may need `sleep 2` before reading updated content
+9. **Wait after navigation or scroll** — SPA pages and lazy-loaded pages need time before content updates. Prefer smart wait (use `Wait for Element` script); fall back to `sleep 2` only when no specific wait condition is available
 
 ---
 
@@ -1018,7 +1022,7 @@ The following are **enforced rules**, not suggestions. The agent MUST refuse ope
 On the following domains, **only read operations** (get text, get URL, get title, read markdown) are allowed. All click, fill, and execute operations are **forbidden**:
 
 - **Banking**: chase, wellsfargo, bankofamerica, citi, capitalone, usbank, pnc, tdbank, hsbc, and any `.bank` domain
-- **Payments**: paypal, venmo, stripe, square, wise, revolut, robinhood, coinbase, binance
+- **Payments**: paypal, venmo, stripe, squareup, wise, revolut, robinhood, coinbase, binance
 - **Identity/Auth**: `accounts.google.com`, `login.microsoftonline.com`, `login.live.com`, `icloud.com/account`, `*.okta.com`, `*.auth0.com`, `*.onelogin.com`
 - **Cloud Consoles**: `console.aws.amazon.com`, `console.cloud.google.com`, `portal.azure.com`
 - **Chrome Internal**: `chrome://`, `chrome-extension://`, `about:`
@@ -1053,7 +1057,7 @@ Before any interaction on an unfamiliar page, use the `Safety Check (Pre-action)
 
 - **Requires user login**: This skill cannot log in on behalf of the user. The user must be authenticated in Chrome first.
 - **Long content**: For lazy-loaded pages, scroll the real page first to load more content. Use `.substring(start, end)` (macOS) or `eval "document.body.innerText.substring(0, 15000)"` (Windows) to paginate output after content has loaded.
-- **SPA pages**: Wait 2-3 seconds after clicking navigation elements before reading content.
+- **SPA pages**: After clicking navigation elements, wait for the target content to appear (prefer smart wait) before reading. Fall back to `sleep 2` if no specific wait condition is available.
 - **Security**: Commands execute JavaScript in the user's authenticated session. Never run untrusted scripts.
 - **macOS-specific**: AppleScript itself has no screenshot API, but `screencapture -l <windowID>` can capture the Chrome window (see `Capture Page Screenshot` in the macOS Advanced section). Chrome must be in foreground.
 - **Windows-specific**: Chrome must be restarted with debugging flag. Requires agent-browser + Node.js.

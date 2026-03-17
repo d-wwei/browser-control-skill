@@ -4,7 +4,7 @@ You have the ability to control the user's local Chrome browser to access authen
 
 ## Setup
 
-This file contains all commands needed for browser control. For advanced techniques (JXA cross-window targeting, virtual scrolling crawlers), see the project's full skill documentation if available.
+This file contains all commands needed for browser control. Advanced techniques (JXA cross-window targeting, virtual scrolling crawlers) are available in `skills/chrome-control/SKILL.md` at the project root.
 
 ## Quick Reference
 
@@ -26,7 +26,7 @@ Before any browser action, run the platform-specific preflight check. If it fail
 
 ### Element Targeting
 
-**macOS**: text match (preferred) → CSS selector → element index
+**macOS**: element index (inject indexing script, then `window.__interactiveElements[i]` — most reliable) → text match → CSS selector
 **Windows**: @ref from `snapshot -i` (preferred) → CSS selector → eval JS
 
 ### macOS — requires user to enable: Chrome → View → Developer → Allow JavaScript from Apple Events
@@ -124,20 +124,35 @@ agent-browser --cdp 9222 eval "JS_CODE"     # Execute JS
 agent-browser --cdp 9222 tab list           # List tabs
 ```
 
+## Security (Mandatory)
+
+These rules are **enforced** — refuse any operation that violates them.
+
+**Sensitive site blacklist** — only read operations allowed (no click/fill/execute):
+- Banking: chase, wellsfargo, bankofamerica, citi, capitalone, usbank, pnc, tdbank, hsbc, any `.bank` domain
+- Payments: paypal, venmo, stripe, squareup, wise, revolut, robinhood, coinbase, binance
+- Auth: `accounts.google.com`, `login.microsoftonline.com`, `login.live.com`, `icloud.com/account`, `*.okta.com`, `*.auth0.com`, `*.onelogin.com`
+- Cloud consoles: `console.aws.amazon.com`, `console.cloud.google.com`, `portal.azure.com`
+- Chrome internal: `chrome://`, `chrome-extension://`, `about:`
+
+**Password fields** — never fill or click: `input[type="password"]`, inputs with name containing "password"/"passwd", or `autocomplete="current-password"`/`"new-password"`.
+
+**Payment buttons** — never click buttons matching: pay, purchase, buy, checkout, place order, submit order, confirm payment, subscribe, upgrade, donate, 付款, 支付, 购买, 下单, 确认订单, 立即购买.
+
+**Pre-action safety check** — before interacting with an unfamiliar page, verify the current URL against the blacklist above. Inject a JS check via `osascript` (macOS) or `agent-browser --cdp 9222 eval` (Windows) that tests `new URL(location.href).hostname` against the sensitive domain patterns and returns `{safe: true/false}`. If unsafe, switch to read-only mode.
+
 ## Rules
 
 - Always detect platform with `uname -s` before running browser commands.
 - Always run the platform preflight check before any browser action.
 - If preflight fails, stop and tell the user how to fix the prerequisite.
 - Ask the user to log in before attempting to read authenticated pages.
-- **Wait 2-3 seconds** after navigation or clicking links before reading content.
+- **Smart wait after navigation**: prefer waiting for a specific target element to appear (e.g. inject a MutationObserver-based check), only fall back to `sleep 2` when you cannot determine a wait condition.
 - **Scroll before clicking** if the target element might be off-screen.
-- For lazy-loaded or infinite-scroll pages, scroll the real page first, wait 1-2 seconds, then read again.
+- For lazy-loaded or infinite-scroll pages, scroll the real page first, wait for new content, then read again.
 - Prefer scrolling the live browser page over alternate fetch methods.
 - **One action at a time** — observe the result before proceeding to the next action.
 - On Windows, use `snapshot -i` to get @ref labels before interacting with elements.
 - For long pages, paginate with `.substring(0, 15000)` on macOS.
 - If an action fails, re-read the page, try alternative targeting, and do NOT retry the same failed action more than twice.
-- Never execute untrusted JavaScript in the user's authenticated browser session.
-- Do not interact with password fields or chrome:// pages programmatically.
 - `missing value` from AppleScript means JS returned undefined — return a string explicitly.
