@@ -36,6 +36,51 @@ Before reading, clicking, navigating, filling, or executing JavaScript, always v
 - Explain what is missing and guide the user through setup.
 - Only continue after the user confirms setup is complete, or after a verification command succeeds.
 
+## Step-by-Step Reasoning
+
+Before each browser action, follow this mental model:
+
+### 1. EVALUATE
+What happened after my last action? Did it succeed?
+- If I navigated: did the URL change? Is the page loaded?
+- If I clicked: did anything change on the page?
+- If I typed: is the text visible in the field?
+
+### 2. OBSERVE
+What does the current page state tell me?
+- Read page content or check the current URL
+- What interactive elements are available?
+- Am I on the right page for the user's goal?
+
+### 3. PLAN
+What is the single next action needed?
+- Do I need to scroll to reveal more content?
+- Do I need to wait for something to load?
+- Which specific element should I interact with?
+
+### 4. ACT
+Execute exactly ONE browser action, then return to step 1.
+- Use the most reliable targeting method available
+- Be specific about which tab or window
+
+## Element Targeting Priority
+
+Use the most reliable method available for the current platform:
+
+### macOS (AppleScript)
+1. **Text content match** (most readable, preferred for buttons/links)
+2. **CSS selector** (for form inputs, specific elements)
+3. **Element index** (querySelectorAll[n], for lists)
+4. **Coordinates** (last resort only — use `document.elementFromPoint(x,y).click()`; fragile across screen sizes)
+
+### Windows (agent-browser)
+1. **@ref from snapshot** (e.g., `@e3` — most reliable, preferred)
+   - Run `agent-browser --cdp 9222 snapshot -i` first to get refs
+2. **CSS selector** (e.g., `"#submit-btn"`)
+3. **JavaScript via eval** (for complex targeting)
+
+Always prefer structured references (@ref on Windows, text match on macOS) over manually constructed CSS selectors — selectors are fragile and break when page structure changes.
+
 ---
 
 # macOS Approach (AppleScript)
@@ -69,7 +114,9 @@ Interpretation:
 
 ## macOS Commands
 
-### Get Current Tab URL
+### Observation
+
+#### Get Current Tab URL
 
 ```bash
 osascript -e '
@@ -78,7 +125,7 @@ tell application "Google Chrome"
 end tell'
 ```
 
-### Get Page Title
+#### Get Page Title
 
 ```bash
 osascript -e '
@@ -87,7 +134,7 @@ tell application "Google Chrome"
 end tell'
 ```
 
-### Get Page Text Content
+#### Get Page Text Content
 
 ```bash
 osascript -e '
@@ -114,7 +161,7 @@ tell application "Google Chrome"
 end tell'
 ```
 
-### Get Page HTML
+#### Get Page HTML
 
 ```bash
 osascript -e '
@@ -123,7 +170,30 @@ tell application "Google Chrome"
 end tell'
 ```
 
-### Navigate to a URL
+#### List All Open Tabs
+
+```bash
+osascript <<'EOF'
+tell application "Google Chrome"
+    set allTabs to {}
+    set i to 1
+    repeat with w in windows
+        set j to 1
+        repeat with t in tabs of w
+            set end of allTabs to ("w" & i & "-t" & j & ": " & URL of t)
+            set j to j + 1
+        end repeat
+        set i to i + 1
+    end repeat
+    set AppleScript's text item delimiters to linefeed
+    return allTabs as text
+end tell
+EOF
+```
+
+### Navigation
+
+#### Navigate to a URL
 
 ```bash
 osascript -e '
@@ -132,7 +202,20 @@ tell application "Google Chrome"
 end tell'
 ```
 
-### Click an Element
+#### Switch to a Specific Tab in the Front Window
+
+```bash
+osascript -e '
+tell application "Google Chrome"
+    set active tab index of front window to 3
+end tell'
+```
+
+> **Note**: The tab list (`List All Open Tabs`) spans all Chrome windows, but the simple switch command above only changes the active tab in the **front window**. For cross-window targeting, use the JXA advanced example below to locate and interact with a tab in any window.
+
+### Interaction
+
+#### Click an Element
 
 By CSS selector:
 
@@ -170,7 +253,7 @@ tell application "Google Chrome"
 end tell'
 ```
 
-### Fill a Form Field
+#### Fill a Form Field
 
 ```bash
 osascript -e '
@@ -184,7 +267,9 @@ tell application "Google Chrome"
 end tell'
 ```
 
-### Execute Arbitrary JavaScript
+### Advanced
+
+#### Execute Arbitrary JavaScript
 
 ```bash
 osascript -e '
@@ -193,43 +278,7 @@ tell application "Google Chrome"
 end tell'
 ```
 
-### List All Open Tabs
-
-```bash
-osascript <<'EOF'
-tell application "Google Chrome"
-    set allTabs to {}
-    set i to 1
-    repeat with w in windows
-        set j to 1
-        repeat with t in tabs of w
-            set end of allTabs to ("w" & i & "-t" & j & ": " & URL of t)
-            set j to j + 1
-        end repeat
-        set i to i + 1
-    end repeat
-    set AppleScript's text item delimiters to linefeed
-    return allTabs as text
-end tell
-EOF
-```
-
-### Switch to a Specific Tab
-
-```bash
-osascript -e '
-tell application "Google Chrome"
-    set active tab index of front window to 3
-end tell'
-```
-
-## macOS Tips
-
-- **`missing value` returned**: The JavaScript returned `undefined` or `null`. Ensure the JS expression explicitly returns a string.
-- **Escaped quotes**: Inside AppleScript's JavaScript strings, use `\"` for double quotes. For complex JS, use heredoc: `osascript <<'EOF' ... EOF`.
-- **Multiple windows**: Commands target `front window` by default. Use `window 2`, `window 3` for other windows.
-
-## macOS Advanced JXA (Robust Process & Tab Targeting)
+#### JXA Robust Process & Tab Targeting
 
 When macOS has multiple Chrome processes running (sometimes due to PWAs, Chrome apps, or multiple desktops), AppleScript might fail with `invalid index` errors because of process name collision. In such cases, use JavaScript for Automation (JXA) to iterate over all windows and tabs to find the exact URL. This approach completely bypasses the need for the tab to be active or in the "front window".
 
@@ -253,7 +302,7 @@ function run() {
 '
 ```
 
-## Advanced Web Scraping (Virtual Scrolling & SPAs)
+#### Virtual Scrolling & SPA Crawler
 
 Modern web apps (like X/Twitter, React Virtualized) destroy DOM nodes when they scroll out of view. Simple `document.body.innerText` only captures the current viewport.
 To extract content from these long pages, you MUST inject a crawler that scrolls down periodically and accumulates DOM data into a global variable or `Set` to prevent data loss.
@@ -308,6 +357,12 @@ function run() {
 '
 ```
 
+## macOS Tips
+
+- **`missing value` returned**: The JavaScript returned `undefined` or `null`. Ensure the JS expression explicitly returns a string.
+- **Escaped quotes**: Inside AppleScript's JavaScript strings, use `\"` for double quotes. For complex JS, use heredoc: `osascript <<'EOF' ... EOF`.
+- **Multiple windows**: Commands target `front window` by default. Use `window 2`, `window 3` for other windows.
+
 ---
 
 # Windows Approach (Chrome CDP)
@@ -332,7 +387,7 @@ Chrome must also be running with remote debugging enabled for the current sessio
 Run these checks before browser automation:
 
 ```powershell
-where agent-browser
+Get-Command agent-browser
 Invoke-RestMethod -Uri "http://127.0.0.1:9222/json/version"
 ```
 
@@ -421,9 +476,14 @@ The user logs into the target page in the Chrome window that just opened.
 
 ### Step 3: Use agent-browser to interact
 
+#### Observation
+
 ```bash
 # Get page accessibility snapshot (best for AI to understand page structure)
 agent-browser --cdp 9222 snapshot
+
+# Get interactive elements only with @ref labels
+agent-browser --cdp 9222 snapshot -i
 
 # Get page text content
 agent-browser --cdp 9222 get text
@@ -433,10 +493,24 @@ agent-browser --cdp 9222 get url
 
 # Get page title
 agent-browser --cdp 9222 get title
+```
 
+#### Navigation
+
+```bash
 # Navigate to a URL
 agent-browser --cdp 9222 open "https://example.com"
 
+# List open tabs
+agent-browser --cdp 9222 tab list
+
+# Switch tab
+agent-browser --cdp 9222 tab 2
+```
+
+#### Interaction
+
+```bash
 # Click an element by reference (from snapshot)
 agent-browser --cdp 9222 click @e3
 
@@ -445,7 +519,11 @@ agent-browser --cdp 9222 click "#submit-btn"
 
 # Fill a form field
 agent-browser --cdp 9222 fill @e1 "search text"
+```
 
+#### Capture
+
+```bash
 # Take a screenshot
 agent-browser --cdp 9222 screenshot /tmp/page.png
 
@@ -454,17 +532,15 @@ agent-browser --cdp 9222 screenshot --full /tmp/full-page.png
 
 # Save as PDF
 agent-browser --cdp 9222 pdf /tmp/page.pdf
+```
 
+#### Advanced
+
+```bash
 # Execute JavaScript
 agent-browser --cdp 9222 eval "document.title"
 agent-browser --cdp 9222 eval "window.scrollBy(0, window.innerHeight); 'done'"
 agent-browser --cdp 9222 eval "window.scrollTo(0, document.body.scrollHeight); 'done'"
-
-# List open tabs
-agent-browser --cdp 9222 tab list
-
-# Switch tab
-agent-browser --cdp 9222 tab 2
 ```
 
 ## Windows Tips
@@ -498,10 +574,49 @@ This workflow applies to both platforms:
 8. **Interact with the page** (click, navigate, fill) using platform-specific commands above
 9. **Wait after navigation or scroll** — SPA pages and lazy-loaded pages may need `sleep 2` before reading updated content
 
+---
+
+## Best Practices
+
+1. **Wait after navigation**: After navigating to a URL or clicking a link, wait 2-3 seconds (`sleep 2`) before reading content. SPA pages need time to render.
+
+2. **Scroll before interacting**: If the target element might be below the fold, scroll down first. Off-screen elements may fail to click.
+
+3. **Confirm actions succeeded**: After each action, verify the result:
+   - After navigate: check the URL changed
+   - After click: read content to see if the page updated
+   - After fill: verify the field value
+
+4. **One action at a time**: Execute one browser action, observe the result, then decide the next action. Do not chain multiple clicks or navigations without checking between them.
+
+5. **Use snapshot on Windows**: Before interacting with elements, run `agent-browser --cdp 9222 snapshot -i` to see interactive elements with @ref labels. This is more reliable than guessing CSS selectors.
+
+6. **Paginate long content**: On macOS, use `.substring(start, end)` to read content in chunks. Never try to read an entire very long page at once.
+
+7. **Prefer scrolling over alternative methods**: When content isn't loaded yet (lazy-load, infinite scroll), scroll the real browser page first rather than switching to a different reading strategy.
+
+## Recovery Strategy
+
+If a browser action fails or produces unexpected results:
+
+1. **Observe first**: Read the page content or take a screenshot (Windows) to understand the current state
+2. **Re-read elements**: The page may have changed — re-read to get fresh element references
+3. **Try alternative targeting**: If CSS selector failed, try text match; if text match failed, try a different selector
+4. **Check for popups/modals**: Dialogs, cookie banners, or overlays may be blocking the target element — dismiss them first
+5. **Do NOT retry blindly**: Never repeat the exact same failed action more than twice. Change your approach instead
+
+## Security Boundaries
+
+- Never execute untrusted or user-provided JavaScript in the browser — commands run in the user's authenticated session
+- Avoid interacting with password fields or authentication forms programmatically
+- Do not attempt to access chrome:// pages or browser extension pages — these are blocked by Chrome security
+- Cross-origin iframes cannot be accessed — inform the user if the target content is inside one
+- If the user's page contains sensitive financial or medical data, confirm with the user before extracting content
+
 # Common Limitations
 
 - **Requires user login**: This skill cannot log in on behalf of the user. The user must be authenticated in Chrome first.
-- **Long content**: For lazy-loaded pages, scroll the real page first to load more content. Use `.substring(start, end)` (macOS) or `--max-output` (Windows) only to paginate output after content has loaded.
+- **Long content**: For lazy-loaded pages, scroll the real page first to load more content. Use `.substring(start, end)` (macOS) or `eval "document.body.innerText.substring(0, 15000)"` (Windows) to paginate output after content has loaded.
 - **SPA pages**: Wait 2-3 seconds after clicking navigation elements before reading content.
 - **Security**: Commands execute JavaScript in the user's authenticated session. Never run untrusted scripts.
 - **macOS-specific**: No screenshot support via AppleScript. Chrome must be in foreground.

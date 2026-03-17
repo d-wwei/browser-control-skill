@@ -17,6 +17,8 @@
 - **跨平台策略更务实**：macOS 直接走原生 AppleScript，几乎零依赖；Windows 则走更实际的 CDP 路线。
 - **以 skill / adapter 为中心，而不是以框架为中心**：目标是让 Claude Code、Codex、Cursor、Gemini CLI 等 agent 可以直接接入，而不是先搭一整套自动化基础设施。
 - **前置条件透明**：agent 在真正执行前应先做 preflight check，环境没准备好就先停下并引导用户设置。
+- **结构化推理框架**：Agent 在每次操作前遵循 EVALUATE → OBSERVE → PLAN → ACT 循环，减少盲目点击和无效 tool call。
+- **内置最佳实践**：包含元素定位优先级、错误恢复策略和安全边界——Agent 知道如何优雅处理失败情况。
 
 ## 为什么需要这个 Skill？
 
@@ -113,7 +115,7 @@ osascript -e 'tell application "Google Chrome" to execute active tab of front wi
 在 agent 执行任何浏览器操作之前，应先验证前置条件：
 
 ```powershell
-where agent-browser
+Get-Command agent-browser
 Invoke-RestMethod -Uri "http://127.0.0.1:9222/json/version"
 ```
 
@@ -128,15 +130,21 @@ Invoke-RestMethod -Uri "http://127.0.0.1:9222/json/version"
 
 ## 使用方式
 
-agent 在真正操作浏览器之前，应该始终：
+Agent 在每次浏览器操作前遵循结构化推理循环：
 
 1. 检测当前平台
 2. 执行该平台对应的前置检查
-3. 如果检查失败，先提示用户完成设置，不继续执行浏览器操作
-4. 只有在前置条件确认满足后，才继续读取页面、点击、导航或执行 JavaScript
-5. 如果页面是懒加载或无限滚动，先滚动真实浏览器页面触发加载，再继续读取，不要优先改用别的抓取方式
+3. 如果检查失败，先提示用户完成设置
+4. **EVALUATE** — 上次操作是否成功？
+5. **OBSERVE** — 读取当前页面状态
+6. **PLAN** — 决定下一步单一操作
+7. **ACT** — 执行一个操作，然后回到第 4 步
 
-安装后，直接用自然语言让 Claude Code 操作浏览器：
+元素定位优先级：
+- **macOS**：按文本内容匹配 → CSS 选择器 → 元素索引
+- **Windows**：`snapshot -i` 的 @ref 引用 → CSS 选择器 → JavaScript eval
+
+安装后，直接用自然语言让 Agent 操作浏览器：
 
 - **读取已登录的页面内容**："帮我读一下当前 Chrome 标签页的内容"
 - **导航和点击**："点击设置标签" 或 "打开 https://..."
@@ -147,23 +155,23 @@ agent 在真正操作浏览器之前，应该始终：
 
 ```
 你：读一下我当前 Chrome 页面的内容
-Claude：[通过 AppleScript (macOS) 或 CDP (Windows) 提取页面文本]
+Agent：[通过 AppleScript (macOS) 或 CDP (Windows) 提取页面文本]
 
 你：点击「报表」标签
-Claude：[找到文本为「报表」的元素并点击]
+Agent：[找到文本为「报表」的元素并点击]
 
 你：打开 https://internal.company.com/dashboard
-Claude：[导航到目标 URL]
+Agent：[导航到目标 URL]
 ```
 
 ## 使用流程
 
 1. 用户在 Chrome 中正常打开目标页面并登录
-2. 告诉 Claude Code 你要做什么（读取内容、点击、提取数据等）
-3. Claude 自动检测平台，使用对应方案操作你的 Chrome
+2. 告诉 Agent 你要做什么（读取内容、点击、提取数据等）
+3. Agent 自动检测平台，使用对应方案操作你的 Chrome
 4. 返回结果
 
-**注意**：Windows 用户每次使用前需要用调试模式启动 Chrome（详见 SKILL.md）。
+**注意**：Windows 用户每次使用前需要用调试模式启动 Chrome（详见上文「环境要求 → Windows」章节）。
 
 ## 环境要求
 
@@ -185,6 +193,7 @@ Claude：[导航到目标 URL]
 - macOS：不支持截图；Chrome 必须处于打开状态
 - Windows：每次使用前需要用调试模式重启 Chrome
 - 超长页面内容需要分段读取
+- Agent 遵循每次一个操作的原则——复杂的多步骤工作流可能需要多轮交互
 
 ## 许可证
 

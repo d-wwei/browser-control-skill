@@ -10,9 +10,28 @@ uname -s
 - `Darwin` → macOS → AppleScript approach
 - `MINGW*` / `CYGWIN*` / `MSYS*` → Windows → CDP approach
 
+## Reasoning (before each action)
+
+1. EVALUATE — did my last action succeed?
+2. OBSERVE — read current page state
+3. PLAN — what single action advances the goal?
+4. ACT — execute one action, then re-evaluate
+
+## Element Targeting
+
+**macOS**: text match (preferred) → CSS selector → element index
+**Windows**: @ref from `snapshot -i` (preferred) → CSS selector → eval JS
+
 ## macOS (AppleScript)
 
 **Prerequisite**: User enables Chrome → View → Developer → Allow JavaScript from Apple Events
+
+**Preflight**:
+
+```bash
+osascript -e 'tell application "Google Chrome" to get name'
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.title"'
+```
 
 | Action | Command |
 |---|---|
@@ -22,6 +41,7 @@ uname -s
 | Get HTML | `osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.documentElement.outerHTML.substring(0, 10000)"'` |
 | Navigate | `osascript -e 'tell application "Google Chrome" to set URL of active tab of front window to "URL"'` |
 | Click (CSS) | `osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.querySelector(\"SEL\").click()"'` |
+| Scroll down | `osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "window.scrollBy(0, window.innerHeight); \"done\";"'` |
 | Run JS | `osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "CODE"'` |
 
 **Click by text content:**
@@ -69,9 +89,18 @@ end tell
 EOF
 ```
 
+> The tab list spans all Chrome windows, but `set active tab index of front window` only switches tabs in the front window. For cross-window targeting, use JXA (`osascript -l JavaScript`).
+
 ## Windows (Chrome CDP)
 
 **Prerequisites**: `npm install -g agent-browser && agent-browser install`
+
+**Preflight**:
+
+```powershell
+Get-Command agent-browser
+Invoke-RestMethod -Uri "http://127.0.0.1:9222/json/version"
+```
 
 **Start Chrome** (must close Chrome fully first):
 ```powershell
@@ -96,9 +125,18 @@ start chrome --remote-debugging-port=9222 --no-first-run
 
 ## Rules
 
-1. Always detect platform first with `uname -s`.
-2. Ask user to log in before reading authenticated pages.
-3. Wait 2-3 seconds after navigation clicks before reading content.
-4. Paginate long content: `.substring(0, 15000)` on macOS, `--max-output` on Windows.
-5. `missing value` from AppleScript means JS returned undefined — return a string explicitly.
-6. Never execute untrusted JavaScript in the user's authenticated session.
+- Always detect platform with `uname -s` before running browser commands.
+- Always run the platform preflight check before any browser action.
+- If preflight fails, stop and tell the user how to fix the prerequisite.
+- Ask the user to log in before attempting to read authenticated pages.
+- **Wait 2-3 seconds** after navigation or clicking links before reading content.
+- **Scroll before clicking** if the target element might be off-screen.
+- For lazy-loaded or infinite-scroll pages, scroll the real page first, wait 1-2 seconds, then read again.
+- Prefer scrolling the live browser page over alternate fetch methods.
+- **One action at a time** — observe the result before proceeding to the next action.
+- On Windows, use `snapshot -i` to get @ref labels before interacting with elements.
+- For long pages, paginate with `.substring(0, 15000)` on macOS.
+- If an action fails, re-read the page, try alternative targeting, and do NOT retry the same failed action more than twice.
+- Never execute untrusted JavaScript in the user's authenticated browser session.
+- Do not interact with password fields or chrome:// pages programmatically.
+- `missing value` from AppleScript means JS returned undefined — return a string explicitly.

@@ -17,6 +17,8 @@ This skill is not trying to be the most powerful browser automation stack. It is
 - **Pragmatic cross-platform design**: macOS uses native AppleScript with nearly zero setup; Windows uses CDP where that is the practical choice.
 - **Skill-first packaging**: this repository is structured to drop directly into Claude Code, Codex, Cursor, Gemini CLI, and similar agents, instead of asking users to assemble an automation stack first.
 - **Explicit preflight checks**: agents are expected to verify prerequisites before acting, and to stop and guide the user if the environment is not ready.
+- **Structured reasoning framework**: agents follow an EVALUATE → OBSERVE → PLAN → ACT cycle before each action, reducing blind clicks and wasted tool calls.
+- **Built-in best practices**: includes element targeting priority, error recovery strategies, and security boundaries — agents know how to handle failures gracefully.
 
 ## Why This Skill?
 
@@ -84,7 +86,7 @@ If the JavaScript check fails, the agent should stop and guide the user to:
 Before the agent performs any browser action, it should verify the prerequisite with:
 
 ```powershell
-where agent-browser
+Get-Command agent-browser
 Invoke-RestMethod -Uri "http://127.0.0.1:9222/json/version"
 ```
 
@@ -128,13 +130,28 @@ Copy `AGENT_INSTRUCTIONS.md` into your project, or paste its contents into the a
 
 ## Usage
 
-The agent should always:
+The agent follows a structured reasoning cycle for every browser action:
 
-1. Detect the platform.
-2. Run the platform-specific preflight check.
-3. Stop and guide the user through setup if the check fails.
-4. Only continue with browser automation after the prerequisite is confirmed.
-5. If the page is lazy-loaded or infinite-scroll, scroll the real browser page first to load more content before trying other reading strategies.
+1. **Detect** the platform (`uname -s`).
+2. **Run** the platform-specific preflight check.
+3. **Stop and guide** the user through setup if the check fails.
+4. **EVALUATE** — did the last action succeed?
+5. **OBSERVE** — read the current page state.
+6. **PLAN** — decide the single next action.
+7. **ACT** — execute one action, then return to step 4.
+
+Element targeting priority:
+- **macOS**: text content match → CSS selector → element index
+- **Windows**: @ref from `snapshot -i` → CSS selector → JavaScript eval
+
+### Quick Start
+
+1. Open the target page in Chrome and log in normally
+2. Tell the agent what you want to do (read content, click, extract data, etc.)
+3. The agent auto-detects the platform and uses the corresponding approach to control Chrome
+4. Results are returned
+
+**Note**: Windows users must start Chrome in debug mode before each session (see Setup above).
 
 Once installed, the agent can:
 
@@ -176,6 +193,7 @@ Agent: [navigates the active tab to the URL]
 - macOS: no screenshot support via AppleScript; Chrome must be in foreground
 - Windows: Chrome must be restarted with debugging flag each session
 - Very large pages need paginated reading
+- Agent follows one-action-at-a-time principle — complex multi-step workflows may require multiple turns
 
 ## License
 
