@@ -229,6 +229,85 @@ end tell'
 - **Escaped quotes**: Inside AppleScript's JavaScript strings, use `\"` for double quotes. For complex JS, use heredoc: `osascript <<'EOF' ... EOF`.
 - **Multiple windows**: Commands target `front window` by default. Use `window 2`, `window 3` for other windows.
 
+## macOS Advanced JXA (Robust Process & Tab Targeting)
+
+When macOS has multiple Chrome processes running (sometimes due to PWAs, Chrome apps, or multiple desktops), AppleScript might fail with `invalid index` errors because of process name collision. In such cases, use JavaScript for Automation (JXA) to iterate over all windows and tabs to find the exact URL. This approach completely bypasses the need for the tab to be active or in the "front window".
+
+```javascript
+osascript -l JavaScript -e '
+function run() {
+    var chrome = Application("Google Chrome");
+    var windows = chrome.windows();
+    for (var i = 0; i < windows.length; i++) {
+        var tabs = windows[i].tabs();
+        for (var j = 0; j < tabs.length; j++) {
+            if (tabs[j].url().indexOf("YOUR_TARGET_URL_PART") !== -1) {
+                var targetTab = tabs[j];
+                // Execute JS to read or change
+                return chrome.execute(targetTab, {javascript: "document.title"});
+            }
+        }
+    }
+    return "Target tab not found.";
+}
+'
+```
+
+## Advanced Web Scraping (Virtual Scrolling & SPAs)
+
+Modern web apps (like X/Twitter, React Virtualized) destroy DOM nodes when they scroll out of view. Simple `document.body.innerText` only captures the current viewport.
+To extract content from these long pages, you MUST inject a crawler that scrolls down periodically and accumulates DOM data into a global variable or `Set` to prevent data loss.
+
+**1. Inject the background scrolling crawler (JXA Example):**
+```javascript
+osascript -l JavaScript -e '
+function run() {
+    var chrome = Application("Google Chrome");
+    var targetTab = null; // Find targetTab logic same as above
+    
+    // Smooth scroll to top
+    chrome.execute(targetTab, {javascript: "window.scrollTo(0,0);"});
+    delay(2);
+    
+    // Inject asynchronous background crawler
+    chrome.execute(targetTab, {javascript: `
+        window.__foundText = "";
+        var scrollInterval = setInterval(() => {
+            var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null, false);
+            var node;
+            while(node = walker.nextNode()) {
+                // Example filter, change this based on target text
+                if(node.nodeValue.includes("YOUR_TARGET_KEYWORD")) {
+                    var parentBlock = node.parentElement;
+                    while(parentBlock && !["DIV", "PRE", "CODE"].includes(parentBlock.tagName.toUpperCase())) {
+                        parentBlock = parentBlock.parentElement;
+                    }
+                    if(parentBlock && !window.__foundText.includes(parentBlock.innerText)) {
+                        window.__foundText += parentBlock.innerText + "\\n\\n---NEXT---\\n\\n";
+                    }
+                }
+            }
+            window.scrollBy(0, 800);  // Scroll down one viewport
+            if(window.scrollY + window.innerHeight >= document.body.scrollHeight) clearInterval(scrollInterval);
+        }, 500);
+    `});
+    
+    return "Started async extraction in browser background.";
+}
+'
+```
+
+**2. Wait 5-10 seconds, then retrieve the accumulated text:**
+```javascript
+osascript -l JavaScript -e '
+function run() {
+    var chrome = Application("Google Chrome");
+    var targetTab = null; // Find targetTab logic same as above
+    return chrome.execute(targetTab, {javascript: "window.__foundText || \"Not ready\""});
+}
+'
+```
+
 ---
 
 # Windows Approach (Chrome CDP)
