@@ -52,6 +52,12 @@ What does the current page state tell me?
 - What interactive elements are available?
 - Am I on the right page for the user's goal?
 
+**Auto-snapshot rules** — decide whether to re-read:
+- Last action was **read-only** (get text, get URL, list elements) → page state unchanged, **skip re-read**
+- Last action was **click / navigate / submit / scroll-that-loads** → page state likely changed, **must re-read**
+- You already have the **exact selector or element index** for your next target → **operate directly**, no need to list all elements first
+- **Never** execute the same read command twice consecutively
+
 ### 3. PLAN
 What is the single next action needed?
 - Do I need to scroll to reveal more content?
@@ -68,9 +74,9 @@ Execute exactly ONE browser action, then return to step 1.
 Use the most reliable method available for the current platform:
 
 ### macOS (AppleScript)
-1. **Text content match** (most readable, preferred for buttons/links)
-2. **CSS selector** (for form inputs, specific elements)
-3. **Element index** (querySelectorAll[n], for lists)
+1. **Element index** (inject `List Interactive Elements` first to get indexed list, then use `window.__interactiveElements[index]` — most reliable, analogous to Windows @ref)
+2. **Text content match** (most readable, preferred for buttons/links)
+3. **CSS selector** (for form inputs, specific elements)
 4. **Coordinates** (last resort only — use `document.elementFromPoint(x,y).click()`; fragile across screen sizes)
 
 ### Windows (agent-browser)
@@ -142,6 +148,8 @@ tell application "Google Chrome"
     execute active tab of front window javascript "document.body.innerText"
 end tell'
 ```
+
+> For scenarios requiring preserved structure (tables, lists, code blocks), prefer the `Read Page as Structured Markdown` method in the Advanced section below.
 
 For long pages, use substring to avoid output limits:
 
@@ -278,6 +286,339 @@ tell application "Google Chrome"
 end tell'
 ```
 
+#### Read Page as Structured Markdown
+
+Convert the current page DOM into clean Markdown that preserves headings, lists, tables, links, code blocks, and images. Far more useful than `document.body.innerText` when structure matters.
+
+**Multi-line (readable) version — inject via heredoc:**
+
+```bash
+osascript <<'APPLESCRIPT'
+tell application "Google Chrome"
+    execute active tab of front window javascript "
+(function(maxLen){
+  var R=['script','style','noscript','svg','canvas','template','iframe','object','embed'];
+  var S=['nav','footer','header','aside'];
+  var out=[],cc=0,tr=false;
+  function add(l){if(tr)return;if(cc+l.length+1>maxLen){var r=maxLen-cc;if(r>20)out.push(l.slice(0,r-12)+'…[truncated]');tr=true;return}out.push(l);cc+=l.length+1}
+  function vis(e){if(!(e instanceof HTMLElement))return true;if(e.hidden||e.getAttribute('aria-hidden')==='true')return false;var s=e.style;return s.display!=='none'&&s.visibility!=='hidden'}
+  function res(h){try{return new URL(h,document.baseURI).href}catch(e){return h}}
+  function inl(el){var r='';for(var i=0;i<el.childNodes.length;i++){var c=el.childNodes[i];if(c.nodeType===3){r+=c.textContent.replace(/\\s+/g,' ')}else if(c.nodeType===1){var t=c.tagName.toLowerCase(),tx=inl(c);if(t==='strong'||t==='b')r+='**'+tx.trim()+'**';else if(t==='em'||t==='i')r+='*'+tx.trim()+'*';else if(t==='code')r+='`'+tx.trim()+'`';else if(t==='a'){var hr=c.getAttribute('href')||'';if(hr&&!hr.startsWith('#')&&!hr.startsWith('javascript:'))r+='['+tx.trim()+']('+res(hr)+')';else r+=tx}else if(t==='img'){var sr=c.getAttribute('src')||'',al=c.getAttribute('alt')||'';if(sr)r+='!['+al+']('+res(sr)+')'}else if(t==='br')r+='\\n';else r+=tx}}return r}
+  function li(el,ord,ind){var idx=1;for(var i=0;i<el.children.length;i++){if(tr)return;var ch=el.children[i];if(ch.tagName.toLowerCase()==='li'){var pf='  '.repeat(ind)+(ord?idx+'. ':'- ');var pts=[];for(var j=0;j<ch.childNodes.length;j++){var n=ch.childNodes[j];if(n.nodeType===3){var t=n.textContent.replace(/\\s+/g,' ').trim();if(t)pts.push(t)}else if(n.nodeType===1){var nt=n.tagName.toLowerCase();if(nt!=='ul'&&nt!=='ol'){var t=(n.textContent||'').replace(/\\s+/g,' ').trim();if(t)pts.push(t)}}}if(pts.length)add(pf+pts.join(' '));var nl=ch.querySelector(':scope>ul,:scope>ol');if(nl)li(nl,nl.tagName.toLowerCase()==='ol',ind+1);idx++}}}
+  function tbl(el){var rows=[];var th=el.querySelector('thead');if(th){th.querySelectorAll('tr').forEach(function(tr){var c=[];tr.querySelectorAll('th,td').forEach(function(d){c.push((d.textContent||'').replace(/\\s+/g,' ').trim())});if(c.length)rows.push(c)})}var bd=th?el.querySelector('tbody')||el:el;bd.querySelectorAll('tr').forEach(function(tr){if(th&&tr.closest('thead'))return;var c=[];tr.querySelectorAll('th,td').forEach(function(d){c.push((d.textContent||'').replace(/\\s+/g,' ').trim())});if(c.length)rows.push(c)});if(!rows.length)return;var mc=Math.max.apply(null,rows.map(function(r){return r.length}));rows.forEach(function(r){while(r.length<mc)r.push('')});for(var i=0;i<rows.length;i++){add('| '+rows[i].join(' | ')+' |');if(i===0)add('| '+rows[i].map(function(){return'---'}).join(' | ')+' |');if(tr)return}}
+  function walk(node,d,sel){if(tr)return;if(node.nodeType===3){var t=node.textContent.replace(/\\s+/g,' ').trim();if(t)add(t);return}if(node.nodeType!==1)return;var el=node,tag=el.tagName.toLowerCase();if(R.indexOf(tag)!==-1)return;if(!vis(el))return;if(!sel&&S.indexOf(tag)!==-1&&d<3)return;var m=tag.match(/^h([1-6])$/);if(m){var tx=(el.textContent||'').replace(/\\s+/g,' ').trim();if(tx){add('');add('#'.repeat(parseInt(m[1]))+' '+tx);add('')}return}if(tag==='p'){var tx=inl(el).trim();if(tx){add('');add(tx)}return}if(tag==='a'){var hr=el.getAttribute('href')||'',tx=(el.textContent||'').replace(/\\s+/g,' ').trim();if(tx&&hr&&!hr.startsWith('#')&&!hr.startsWith('javascript:'))add('['+tx+']('+res(hr)+')');else if(tx)add(tx);return}if(tag==='img'){var sr=el.getAttribute('src')||'',al=el.getAttribute('alt')||'';if(sr)add('!['+al+']('+res(sr)+')');return}if(tag==='hr'){add('');add('---');add('');return}if(tag==='br'){add('');return}if(tag==='ul'||tag==='ol'){add('');li(el,tag==='ol',0);add('');return}if(tag==='table'){add('');tbl(el);add('');return}if(tag==='pre'){var ce=el.querySelector('code'),lang=ce&&ce.className?ce.className.match(/language-(\\w+)/):null;add('');add('```'+(lang?lang[1]:''));(el.textContent||'').trimEnd().split('\\n').forEach(function(l){add(l)});add('```');add('');return}if(tag==='blockquote'){var tx=(el.textContent||'').replace(/\\s+/g,' ').trim();if(tx){add('');tx.split('\\n').forEach(function(l){add('> '+l.trim())});add('')}return}for(var i=0;i<el.childNodes.length;i++){walk(el.childNodes[i],d+1,sel);if(tr)return}}
+  var root=document.querySelector('main')||document.querySelector('article')||document.querySelector('[role=main]')||document.body;
+  if(!root)return '[Empty page]';
+  walk(root,0,false);
+  return out.join('\\n').replace(/\\n{3,}/g,'\\n\\n').trim();
+})(15000)
+    "
+end tell
+APPLESCRIPT
+```
+
+**Compressed single-line version** (for direct osascript -e injection):
+
+```bash
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "(function(maxLen){var R=[\"script\",\"style\",\"noscript\",\"svg\",\"canvas\",\"template\",\"iframe\",\"object\",\"embed\"];var S=[\"nav\",\"footer\",\"header\",\"aside\"];var out=[],cc=0,tr=false;function add(l){if(tr)return;if(cc+l.length+1>maxLen){var r=maxLen-cc;if(r>20)out.push(l.slice(0,r-12)+\"…[truncated]\");tr=true;return}out.push(l);cc+=l.length+1}function vis(e){if(!(e instanceof HTMLElement))return true;if(e.hidden||e.getAttribute(\"aria-hidden\")===\"true\")return false;var s=e.style;return s.display!==\"none\"&&s.visibility!==\"hidden\"}function res(h){try{return new URL(h,document.baseURI).href}catch(e){return h}}function inl(el){var r=\"\";for(var i=0;i<el.childNodes.length;i++){var c=el.childNodes[i];if(c.nodeType===3){r+=c.textContent.replace(/\\s+/g,\" \")}else if(c.nodeType===1){var t=c.tagName.toLowerCase(),tx=inl(c);if(t===\"strong\"||t===\"b\")r+=\"**\"+tx.trim()+\"**\";else if(t===\"em\"||t===\"i\")r+=\"*\"+tx.trim()+\"*\";else if(t===\"code\")r+=\"`\"+tx.trim()+\"`\";else if(t===\"a\"){var hr=c.getAttribute(\"href\")||\"\";if(hr&&!hr.startsWith(\"#\")&&!hr.startsWith(\"javascript:\"))r+=\"[\"+tx.trim()+\"](\"+res(hr)+\")\";else r+=tx}else if(t===\"img\"){var sr=c.getAttribute(\"src\")||\"\",al=c.getAttribute(\"alt\")||\"\";if(sr)r+=\"![\"+al+\"](\"+res(sr)+\")\"}else if(t===\"br\")r+=\"\\n\";else r+=tx}}return r}function walk(node,d){if(tr)return;if(node.nodeType===3){var t=node.textContent.replace(/\\s+/g,\" \").trim();if(t)add(t);return}if(node.nodeType!==1)return;var el=node,tag=el.tagName.toLowerCase();if(R.indexOf(tag)!==-1)return;if(!vis(el))return;if(S.indexOf(tag)!==-1&&d<3)return;var m=tag.match(/^h([1-6])$/);if(m){var tx=(el.textContent||\"\").replace(/\\s+/g,\" \").trim();if(tx){add(\"\");add(\"#\".repeat(parseInt(m[1]))+\" \"+tx);add(\"\")}return}if(tag===\"p\"){var tx=inl(el).trim();if(tx){add(\"\");add(tx)}return}if(tag===\"a\"){var hr=el.getAttribute(\"href\")||\"\",tx=(el.textContent||\"\").replace(/\\s+/g,\" \").trim();if(tx&&hr&&!hr.startsWith(\"#\")&&!hr.startsWith(\"javascript:\"))add(\"[\"+tx+\"](\"+res(hr)+\")\");else if(tx)add(tx);return}if(tag===\"img\"){var sr=el.getAttribute(\"src\")||\"\",al=el.getAttribute(\"alt\")||\"\";if(sr)add(\"![\"+al+\"](\"+res(sr)+\")\");return}if(tag===\"table\"){add(\"\");var rows=[];var th=el.querySelector(\"thead\");if(th){th.querySelectorAll(\"tr\").forEach(function(r){var c=[];r.querySelectorAll(\"th,td\").forEach(function(d){c.push((d.textContent||\"\").replace(/\\s+/g,\" \").trim())});if(c.length)rows.push(c)})}var bd=th?el.querySelector(\"tbody\")||el:el;bd.querySelectorAll(\"tr\").forEach(function(r){if(th&&r.closest(\"thead\"))return;var c=[];r.querySelectorAll(\"th,td\").forEach(function(d){c.push((d.textContent||\"\").replace(/\\s+/g,\" \").trim())});if(c.length)rows.push(c)});if(rows.length){var mc=Math.max.apply(null,rows.map(function(r){return r.length}));rows.forEach(function(r){while(r.length<mc)r.push(\"\")});for(var i=0;i<rows.length;i++){add(\"| \"+rows[i].join(\" | \")+\" |\");if(i===0)add(\"| \"+rows[i].map(function(){return\"---\"}).join(\" | \")+\" |\")}}add(\"\");return}if(tag===\"pre\"){var ce=el.querySelector(\"code\"),lang=ce&&ce.className?ce.className.match(/language-(\\\\w+)/):null;add(\"\");add(\"```\"+(lang?lang[1]:\"\"));(el.textContent||\"\").trimEnd().split(\"\\n\").forEach(function(l){add(l)});add(\"```\");add(\"\");return}if(tag===\"blockquote\"){var tx=(el.textContent||\"\").replace(/\\s+/g,\" \").trim();if(tx){add(\"\");add(\"> \"+tx);add(\"\")}return}if(tag===\"ul\"||tag===\"ol\"){add(\"\");var ord=tag===\"ol\";var idx=1;for(var i=0;i<el.children.length;i++){var ch=el.children[i];if(ch.tagName.toLowerCase()===\"li\"){add((ord?idx+\". \":\"- \")+(ch.textContent||\"\").replace(/\\s+/g,\" \").trim());idx++}}add(\"\");return}for(var i=0;i<el.childNodes.length;i++){walk(el.childNodes[i],d+1)}}var root=document.querySelector(\"main\")||document.querySelector(\"article\")||document.querySelector(\"[role=main]\")||document.body;if(!root)return \"[Empty page]\";walk(root,0);return out.join(\"\\n\").replace(/\\n{3,}/g,\"\\n\\n\").trim()})(15000)"'
+```
+
+**Custom maxLength**: Replace the `15000` parameter at the end to control output length.
+
+#### List Interactive Elements
+
+Scan all interactive elements on the page, filter hidden ones, assign each a numeric index, and cache element references in `window.__interactiveElements` for subsequent operations.
+
+**Multi-line (readable) version:**
+
+```bash
+osascript <<'APPLESCRIPT'
+tell application "Google Chrome"
+    execute active tab of front window javascript "
+(function(){
+  var SEL='a[href],button,input,select,textarea,[role=button],[onclick],[contenteditable=true],[tabindex]';
+  var els=document.querySelectorAll(SEL);
+  var result=[], cache=[];
+  for(var i=0;i<els.length;i++){
+    var el=els[i];
+    if(el.tagName.toLowerCase()==='script'||el.tagName.toLowerCase()==='style')continue;
+    if(el.closest('script,style'))continue;
+    if(el.getAttribute('aria-hidden')==='true')continue;
+    var rect=el.getBoundingClientRect();
+    if(rect.width<=0||rect.height<=0)continue;
+    var cs=window.getComputedStyle(el);
+    if(cs.display==='none'||cs.visibility==='hidden'||cs.opacity==='0')continue;
+    if(el.hidden)continue;
+    var idx=cache.length;
+    cache.push(el);
+    var tag=el.tagName.toLowerCase();
+    var parts='['+idx+'] <'+tag+'>';
+    if(el.type)parts+=' type=\"'+el.type+'\"';
+    if(el.name)parts+=' name=\"'+el.name+'\"';
+    if(el.placeholder)parts+=' placeholder=\"'+el.placeholder+'\"';
+    if(el.href)parts+=' href=\"'+el.href+'\"';
+    var label=el.getAttribute('aria-label')||(el.textContent||'').replace(/\\s+/g,' ').trim();
+    if(label)parts+=' \"'+label.substring(0,80)+'\"';
+    result.push(parts);
+  }
+  window.__interactiveElements=cache;
+  return result.join('\\n');
+})()
+    "
+end tell
+APPLESCRIPT
+```
+
+**Compressed single-line version:**
+
+```bash
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "(function(){var SEL=\"a[href],button,input,select,textarea,[role=button],[onclick],[contenteditable=true],[tabindex]\";var els=document.querySelectorAll(SEL);var result=[],cache=[];for(var i=0;i<els.length;i++){var el=els[i];if(el.tagName.toLowerCase()===\"script\"||el.tagName.toLowerCase()===\"style\")continue;if(el.closest(\"script,style\"))continue;if(el.getAttribute(\"aria-hidden\")===\"true\")continue;var rect=el.getBoundingClientRect();if(rect.width<=0||rect.height<=0)continue;var cs=window.getComputedStyle(el);if(cs.display===\"none\"||cs.visibility===\"hidden\"||cs.opacity===\"0\")continue;if(el.hidden)continue;var idx=cache.length;cache.push(el);var tag=el.tagName.toLowerCase();var parts=\"[\"+idx+\"] <\"+tag+\">\";if(el.type)parts+=\" type=\\\"\"+el.type+\"\\\"\";if(el.name)parts+=\" name=\\\"\"+el.name+\"\\\"\";if(el.placeholder)parts+=\" placeholder=\\\"\"+el.placeholder+\"\\\"\";if(el.href)parts+=\" href=\\\"\"+el.href+\"\\\"\";var label=el.getAttribute(\"aria-label\")||(el.textContent||\"\").replace(/\\s+/g,\" \").trim();if(label)parts+=\" \\\"\"+label.substring(0,80)+\"\\\"\";result.push(parts)}window.__interactiveElements=cache;return result.join(\"\\n\")})()"'
+```
+
+#### Click/Fill by Element Index
+
+After running `List Interactive Elements`, use the cached `window.__interactiveElements` array:
+
+```bash
+# Click element at index 3
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "window.__interactiveElements[3].click(); \"done\";"'
+
+# Fill input at index 5
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "var el=window.__interactiveElements[5]; el.value=\"search text\"; el.dispatchEvent(new Event(\"input\",{bubbles:true})); \"done\";"'
+
+# Read value of element at index 2
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "var el=window.__interactiveElements[2]; el.value||el.textContent"'
+```
+
+> **Important**: Element indices become stale after page navigation or DOM changes. Re-run `List Interactive Elements` to refresh.
+
+#### Safety Check (Pre-action)
+
+Inject this function to verify the current page is safe for interaction before executing click/fill operations.
+
+**Multi-line version:**
+
+```bash
+osascript <<'APPLESCRIPT'
+tell application "Google Chrome"
+    execute active tab of front window javascript "
+(function(){
+  var url=location.href.toLowerCase();
+  var bankDomains=['chase','wellsfargo','bankofamerica','citi','capitalone','usbank','pnc','tdbank','hsbc'];
+  var payDomains=['paypal','venmo','stripe','square','wise','revolut','robinhood','coinbase','binance'];
+  var authPaths=['accounts.google.com','login.microsoftonline.com','login.live.com','icloud.com/account'];
+  var authWild=['.okta.com','.auth0.com','.onelogin.com'];
+  var cloudConsoles=['console.aws.amazon.com','console.cloud.google.com','portal.azure.com'];
+  if(/^chrome:|^chrome-extension:|^about:/.test(url))return JSON.stringify({safe:false,reason:'Chrome internal page'});
+  if(/\\.bank\\b/i.test(url))return JSON.stringify({safe:false,reason:'Banking domain (.bank)'});
+  for(var i=0;i<bankDomains.length;i++){if(url.indexOf(bankDomains[i]+'.')!==-1)return JSON.stringify({safe:false,reason:'Banking site: '+bankDomains[i]})}
+  for(var i=0;i<payDomains.length;i++){if(url.indexOf(payDomains[i]+'.')!==-1)return JSON.stringify({safe:false,reason:'Payment site: '+payDomains[i]})}
+  for(var i=0;i<authPaths.length;i++){if(url.indexOf(authPaths[i])!==-1)return JSON.stringify({safe:false,reason:'Auth page: '+authPaths[i]})}
+  for(var i=0;i<authWild.length;i++){if(url.indexOf(authWild[i])!==-1)return JSON.stringify({safe:false,reason:'Auth provider: '+authWild[i]})}
+  for(var i=0;i<cloudConsoles.length;i++){if(url.indexOf(cloudConsoles[i])!==-1)return JSON.stringify({safe:false,reason:'Cloud console: '+cloudConsoles[i]})}
+  window.__checkSafety=function(){return{safe:true}};
+  return JSON.stringify({safe:true,reason:'OK'});
+})()
+    "
+end tell
+APPLESCRIPT
+```
+
+**Check if a specific element is safe to interact with** (password/payment protection):
+
+```bash
+osascript <<'APPLESCRIPT'
+tell application "Google Chrome"
+    execute active tab of front window javascript "
+(function(idx){
+  var el=window.__interactiveElements&&window.__interactiveElements[idx];
+  if(!el)return JSON.stringify({safe:false,reason:'Element not found at index '+idx});
+  if(el.type==='password'||/password|passwd/i.test(el.name||'')||el.autocomplete==='current-password'||el.autocomplete==='new-password')
+    return JSON.stringify({safe:false,reason:'Password field'});
+  var txt=(el.textContent||'').trim().toLowerCase();
+  if(/\\b(pay|purchase|buy|checkout|place\\s*order|submit\\s*order|confirm\\s*payment|subscribe|upgrade|donate)\\b/i.test(txt)||/付款|支付|购买|下单|确认订单|立即购买/.test(txt))
+    return JSON.stringify({safe:false,reason:'Payment button: '+txt.substring(0,50)});
+  return JSON.stringify({safe:true,reason:'OK'});
+})(TARGET_INDEX)
+    "
+end tell
+APPLESCRIPT
+```
+
+Replace `TARGET_INDEX` with the element index number.
+
+#### Wait for Element
+
+Smart wait using MutationObserver — replaces blind `sleep` with condition-based waiting.
+
+**Step 1: Inject the wait script (JXA):**
+
+```bash
+osascript -l JavaScript -e '
+function run() {
+    var chrome = Application("Google Chrome");
+    var tab = chrome.windows[0].activeTab();
+    chrome.execute(tab, {javascript: "(function(sel,timeout,cond){var start=Date.now();function vis(el){if(!el)return false;var r=el.getBoundingClientRect();if(r.width===0&&r.height===0)return false;var s=window.getComputedStyle(el);return s.display!==\"none\"&&s.visibility!==\"hidden\"&&s.opacity!==\"0\"}function chk(){var el=document.querySelector(sel);if(cond===\"attached\")return el!==null;if(cond===\"visible\")return el!==null&&vis(el);if(cond===\"hidden\")return el===null||!vis(el);if(cond===\"loaded\")return document.readyState===\"complete\"&&el!==null;return el!==null}if(chk()){window.__waitResult=JSON.stringify({found:true,elapsed:Date.now()-start});return}var ob=new MutationObserver(function(){if(chk()){ob.disconnect();clearTimeout(tm);window.__waitResult=JSON.stringify({found:true,elapsed:Date.now()-start})}});ob.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:[\"style\",\"class\",\"hidden\"]});var tm=setTimeout(function(){ob.disconnect();window.__waitResult=JSON.stringify({found:false,elapsed:Date.now()-start})},timeout);window.__waitResult=null})(\"YOUR_SELECTOR\",5000,\"visible\")"});
+    return "Wait injected. Poll window.__waitResult for result.";
+}'
+```
+
+**Step 2: Poll for result:**
+
+```bash
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "window.__waitResult"'
+```
+
+Repeat polling every 500ms until a non-null JSON result is returned. Parameters:
+- Replace `YOUR_SELECTOR` with the target CSS selector
+- `5000` = timeout in milliseconds
+- `"visible"` = condition (`visible` | `hidden` | `attached` | `loaded`)
+
+#### Read Console Logs
+
+Inject a console interceptor **before** the target action to capture subsequent logs.
+
+**Inject interceptor:**
+
+```bash
+osascript <<'APPLESCRIPT'
+tell application "Google Chrome"
+    execute active tab of front window javascript "
+(function(){
+  if(window.__consoleLogs)return 'already injected';
+  window.__consoleLogs=[];
+  var orig={log:console.log,warn:console.warn,error:console.error,info:console.info};
+  ['log','warn','error','info'].forEach(function(m){
+    console[m]=function(){
+      var args=Array.prototype.slice.call(arguments).map(function(a){try{return typeof a==='object'?JSON.stringify(a):String(a)}catch(e){return String(a)}});
+      window.__consoleLogs.push({level:m,msg:args.join(' '),ts:Date.now()});
+      orig[m].apply(console,arguments);
+    };
+  });
+  return 'Console interceptor injected';
+})()
+    "
+end tell
+APPLESCRIPT
+```
+
+**Read captured logs:**
+
+```bash
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "JSON.stringify(window.__consoleLogs||[])"'
+```
+
+**Clear logs:**
+
+```bash
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "window.__consoleLogs=[]; \"cleared\";"'
+```
+
+#### Monitor Network Requests
+
+Inject a network interceptor to capture XHR and fetch requests.
+
+**Inject interceptor:**
+
+```bash
+osascript <<'APPLESCRIPT'
+tell application "Google Chrome"
+    execute active tab of front window javascript "
+(function(){
+  if(window.__networkLogs)return 'already injected';
+  window.__networkLogs=[];
+  var origOpen=XMLHttpRequest.prototype.open;
+  var origSend=XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.open=function(method,url){
+    this.__reqInfo={method:method,url:url,ts:Date.now()};
+    return origOpen.apply(this,arguments);
+  };
+  XMLHttpRequest.prototype.send=function(){
+    var info=this.__reqInfo;
+    var xhr=this;
+    xhr.addEventListener('loadend',function(){
+      window.__networkLogs.push({method:info.method,url:info.url,status:xhr.status,timestamp:info.ts,duration:Date.now()-info.ts});
+    });
+    return origSend.apply(this,arguments);
+  };
+  var origFetch=window.fetch;
+  window.fetch=function(input,init){
+    var method=(init&&init.method)||'GET';
+    var url=typeof input==='string'?input:input.url;
+    var ts=Date.now();
+    return origFetch.apply(this,arguments).then(function(resp){
+      window.__networkLogs.push({method:method,url:url,status:resp.status,timestamp:ts,duration:Date.now()-ts});
+      return resp;
+    }).catch(function(err){
+      window.__networkLogs.push({method:method,url:url,status:'error',timestamp:ts,duration:Date.now()-ts,error:err.message});
+      throw err;
+    });
+  };
+  return 'Network interceptor injected';
+})()
+    "
+end tell
+APPLESCRIPT
+```
+
+**Read captured requests:**
+
+```bash
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "JSON.stringify(window.__networkLogs||[])"'
+```
+
+#### Capture Page Screenshot
+
+AppleScript itself has no screenshot API, but macOS `screencapture` can capture a specific Chrome window.
+
+**Basic screenshot:**
+
+```bash
+# Get Chrome front window ID
+WINID=$(osascript -e 'tell application "Google Chrome" to id of front window')
+# Capture the window
+screencapture -l "$WINID" /tmp/chrome-screenshot.png
+```
+
+**Screenshot with interactive element annotations** (overlay index badges, then capture, then remove):
+
+```bash
+# Step 1: Inject visual annotations
+osascript <<'APPLESCRIPT'
+tell application "Google Chrome"
+    execute active tab of front window javascript "
+(function(){
+  if(!window.__interactiveElements)return 'Run List Interactive Elements first';
+  var container=document.createElement('div');
+  container.id='__agentAnnotations';
+  container.style.cssText='position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:2147483647';
+  window.__interactiveElements.forEach(function(el,i){
+    var rect=el.getBoundingClientRect();
+    if(rect.width<=0||rect.height<=0)return;
+    var badge=document.createElement('div');
+    badge.style.cssText='position:fixed;left:'+(rect.left-2)+'px;top:'+(rect.top-2)+'px;width:'+(rect.width+4)+'px;height:'+(rect.height+4)+'px;border:2px solid rgba(255,0,0,0.6);background:rgba(255,0,0,0.08);pointer-events:none;z-index:2147483647';
+    var label=document.createElement('span');
+    label.textContent=i;
+    label.style.cssText='position:absolute;top:-10px;left:-2px;background:red;color:white;font-size:10px;font-weight:bold;padding:1px 4px;border-radius:3px;font-family:monospace';
+    badge.appendChild(label);
+    container.appendChild(badge);
+  });
+  document.body.appendChild(container);
+  return 'Annotations added: '+window.__interactiveElements.length+' elements';
+})()
+    "
+end tell
+APPLESCRIPT
+
+# Step 2: Wait briefly for render, then capture
+sleep 0.5
+WINID=$(osascript -e 'tell application "Google Chrome" to id of front window')
+screencapture -l "$WINID" /tmp/chrome-annotated.png
+
+# Step 3: Remove annotations
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "var a=document.getElementById(\"__agentAnnotations\");if(a)a.remove();\"done\";"'
+```
+
 #### JXA Robust Process & Tab Targeting
 
 When macOS has multiple Chrome processes running (sometimes due to PWAs, Chrome apps, or multiple desktops), AppleScript might fail with `invalid index` errors because of process name collision. In such cases, use JavaScript for Automation (JXA) to iterate over all windows and tabs to find the exact URL. This approach completely bypasses the need for the tab to be active or in the "front window".
@@ -362,6 +703,7 @@ function run() {
 - **`missing value` returned**: The JavaScript returned `undefined` or `null`. Ensure the JS expression explicitly returns a string.
 - **Escaped quotes**: Inside AppleScript's JavaScript strings, use `\"` for double quotes. For complex JS, use heredoc: `osascript <<'EOF' ... EOF`.
 - **Multiple windows**: Commands target `front window` by default. Use `window 2`, `window 3` for other windows.
+- **Screenshots**: Use `screencapture -l <windowID>` where windowID comes from `osascript -e 'tell application "Google Chrome" to id of front window'`. See the `Capture Page Screenshot` section for annotated screenshot support.
 
 ---
 
@@ -543,6 +885,64 @@ agent-browser --cdp 9222 eval "window.scrollBy(0, window.innerHeight); 'done'"
 agent-browser --cdp 9222 eval "window.scrollTo(0, document.body.scrollHeight); 'done'"
 ```
 
+#### Read Page as Structured Markdown
+
+```bash
+agent-browser --cdp 9222 eval "(function(maxLen){var R=['script','style','noscript','svg','canvas','template','iframe','object','embed'];var S=['nav','footer','header','aside'];var out=[],cc=0,tr=false;function add(l){if(tr)return;if(cc+l.length+1>maxLen){var r=maxLen-cc;if(r>20)out.push(l.slice(0,r-12)+'…[truncated]');tr=true;return}out.push(l);cc+=l.length+1}function vis(e){if(!(e instanceof HTMLElement))return true;if(e.hidden||e.getAttribute('aria-hidden')==='true')return false;var s=e.style;return s.display!=='none'&&s.visibility!=='hidden'}function res(h){try{return new URL(h,document.baseURI).href}catch(e){return h}}function inl(el){var r='';for(var i=0;i<el.childNodes.length;i++){var c=el.childNodes[i];if(c.nodeType===3){r+=c.textContent.replace(/\s+/g,' ')}else if(c.nodeType===1){var t=c.tagName.toLowerCase(),tx=inl(c);if(t==='strong'||t==='b')r+='**'+tx.trim()+'**';else if(t==='em'||t==='i')r+='*'+tx.trim()+'*';else if(t==='code')r+='`'+tx.trim()+'`';else if(t==='a'){var hr=c.getAttribute('href')||'';if(hr&&!hr.startsWith('#')&&!hr.startsWith('javascript:'))r+='['+tx.trim()+']('+res(hr)+')';else r+=tx}else if(t==='img'){var sr=c.getAttribute('src')||'',al=c.getAttribute('alt')||'';if(sr)r+='!['+al+']('+res(sr)+')'}else if(t==='br')r+='\n';else r+=tx}}return r}function walk(node,d){if(tr)return;if(node.nodeType===3){var t=node.textContent.replace(/\s+/g,' ').trim();if(t)add(t);return}if(node.nodeType!==1)return;var el=node,tag=el.tagName.toLowerCase();if(R.indexOf(tag)!==-1)return;if(!vis(el))return;if(S.indexOf(tag)!==-1&&d<3)return;var m=tag.match(/^h([1-6])$/);if(m){var tx=(el.textContent||'').replace(/\s+/g,' ').trim();if(tx){add('');add('#'.repeat(parseInt(m[1]))+' '+tx);add('')}return}if(tag==='p'){var tx=inl(el).trim();if(tx){add('');add(tx)}return}if(tag==='a'){var hr=el.getAttribute('href')||'',tx=(el.textContent||'').replace(/\s+/g,' ').trim();if(tx&&hr&&!hr.startsWith('#')&&!hr.startsWith('javascript:'))add('['+tx+']('+res(hr)+')');else if(tx)add(tx);return}if(tag==='img'){var sr=el.getAttribute('src')||'',al=el.getAttribute('alt')||'';if(sr)add('!['+al+']('+res(sr)+')');return}if(tag==='table'){add('');var rows=[];var th=el.querySelector('thead');if(th){th.querySelectorAll('tr').forEach(function(r){var c=[];r.querySelectorAll('th,td').forEach(function(d){c.push((d.textContent||'').replace(/\s+/g,' ').trim())});if(c.length)rows.push(c)})}var bd=th?el.querySelector('tbody')||el:el;bd.querySelectorAll('tr').forEach(function(r){if(th&&r.closest('thead'))return;var c=[];r.querySelectorAll('th,td').forEach(function(d){c.push((d.textContent||'').replace(/\s+/g,' ').trim())});if(c.length)rows.push(c)});if(rows.length){var mc=Math.max.apply(null,rows.map(function(r){return r.length}));rows.forEach(function(r){while(r.length<mc)r.push('')});for(var i=0;i<rows.length;i++){add('| '+rows[i].join(' | ')+' |');if(i===0)add('| '+rows[i].map(function(){return'---'}).join(' | ')+' |')}}add('');return}if(tag==='pre'){var ce=el.querySelector('code'),lang=ce&&ce.className?ce.className.match(/language-(\w+)/):null;add('');add('\`\`\`'+(lang?lang[1]:''));(el.textContent||'').trimEnd().split('\n').forEach(function(l){add(l)});add('\`\`\`');add('');return}if(tag==='blockquote'){var tx=(el.textContent||'').replace(/\s+/g,' ').trim();if(tx){add('');add('> '+tx);add('')}return}if(tag==='ul'||tag==='ol'){add('');var ord=tag==='ol';var idx=1;for(var i=0;i<el.children.length;i++){var ch=el.children[i];if(ch.tagName.toLowerCase()==='li'){add((ord?idx+'. ':'- ')+(ch.textContent||'').replace(/\s+/g,' ').trim());idx++}}add('');return}for(var i=0;i<el.childNodes.length;i++){walk(el.childNodes[i],d+1)}}var root=document.querySelector('main')||document.querySelector('article')||document.querySelector('[role=main]')||document.body;if(!root)return '[Empty page]';walk(root,0);return out.join('\n').replace(/\n{3,}/g,'\n\n').trim()})(15000)"
+```
+
+#### List Interactive Elements
+
+```bash
+agent-browser --cdp 9222 eval "(function(){var SEL='a[href],button,input,select,textarea,[role=button],[onclick],[contenteditable=true],[tabindex]';var els=document.querySelectorAll(SEL);var result=[],cache=[];for(var i=0;i<els.length;i++){var el=els[i];if(el.tagName.toLowerCase()==='script'||el.tagName.toLowerCase()==='style')continue;if(el.closest('script,style'))continue;if(el.getAttribute('aria-hidden')==='true')continue;var rect=el.getBoundingClientRect();if(rect.width<=0||rect.height<=0)continue;var cs=window.getComputedStyle(el);if(cs.display==='none'||cs.visibility==='hidden'||cs.opacity==='0')continue;if(el.hidden)continue;var idx=cache.length;cache.push(el);var tag=el.tagName.toLowerCase();var parts='['+idx+'] <'+tag+'>';if(el.type)parts+=' type=\"'+el.type+'\"';if(el.name)parts+=' name=\"'+el.name+'\"';if(el.placeholder)parts+=' placeholder=\"'+el.placeholder+'\"';if(el.href)parts+=' href=\"'+el.href+'\"';var label=el.getAttribute('aria-label')||(el.textContent||'').replace(/\\s+/g,' ').trim();if(label)parts+=' \"'+label.substring(0,80)+'\"';result.push(parts)}window.__interactiveElements=cache;return result.join('\n')})()"
+```
+
+#### Click/Fill by Element Index
+
+```bash
+# Click element at index 3
+agent-browser --cdp 9222 eval "window.__interactiveElements[3].click(); 'done'"
+
+# Fill input at index 5
+agent-browser --cdp 9222 eval "var el=window.__interactiveElements[5]; el.value='search text'; el.dispatchEvent(new Event('input',{bubbles:true})); 'done'"
+```
+
+#### Safety Check (Pre-action)
+
+```bash
+agent-browser --cdp 9222 eval "(function(){var url=location.href.toLowerCase();var bankDomains=['chase','wellsfargo','bankofamerica','citi','capitalone','usbank','pnc','tdbank','hsbc'];var payDomains=['paypal','venmo','stripe','square','wise','revolut','robinhood','coinbase','binance'];var authPaths=['accounts.google.com','login.microsoftonline.com','login.live.com','icloud.com/account'];var authWild=['.okta.com','.auth0.com','.onelogin.com'];var cloudConsoles=['console.aws.amazon.com','console.cloud.google.com','portal.azure.com'];if(/^chrome:|^chrome-extension:|^about:/.test(url))return JSON.stringify({safe:false,reason:'Chrome internal page'});if(/\\.bank\\b/i.test(url))return JSON.stringify({safe:false,reason:'Banking domain'});for(var i=0;i<bankDomains.length;i++){if(url.indexOf(bankDomains[i]+'.')!==-1)return JSON.stringify({safe:false,reason:'Banking: '+bankDomains[i]})}for(var i=0;i<payDomains.length;i++){if(url.indexOf(payDomains[i]+'.')!==-1)return JSON.stringify({safe:false,reason:'Payment: '+payDomains[i]})}for(var i=0;i<authPaths.length;i++){if(url.indexOf(authPaths[i])!==-1)return JSON.stringify({safe:false,reason:'Auth: '+authPaths[i]})}for(var i=0;i<authWild.length;i++){if(url.indexOf(authWild[i])!==-1)return JSON.stringify({safe:false,reason:'Auth: '+authWild[i]})}for(var i=0;i<cloudConsoles.length;i++){if(url.indexOf(cloudConsoles[i])!==-1)return JSON.stringify({safe:false,reason:'Cloud: '+cloudConsoles[i]})}return JSON.stringify({safe:true,reason:'OK'})})()"
+```
+
+#### Wait for Element
+
+```bash
+# Inject wait script (poll result with a second eval call)
+agent-browser --cdp 9222 eval "(function(sel,timeout,cond){var start=Date.now();function vis(el){if(!el)return false;var r=el.getBoundingClientRect();if(r.width===0&&r.height===0)return false;var s=window.getComputedStyle(el);return s.display!=='none'&&s.visibility!=='hidden'&&s.opacity!=='0'}function chk(){var el=document.querySelector(sel);if(cond==='attached')return el!==null;if(cond==='visible')return el!==null&&vis(el);if(cond==='hidden')return el===null||!vis(el);if(cond==='loaded')return document.readyState==='complete'&&el!==null;return el!==null}if(chk()){window.__waitResult=JSON.stringify({found:true,elapsed:Date.now()-start});return window.__waitResult}var ob=new MutationObserver(function(){if(chk()){ob.disconnect();clearTimeout(tm);window.__waitResult=JSON.stringify({found:true,elapsed:Date.now()-start})}});ob.observe(document.documentElement,{childList:true,subtree:true,attributes:true,attributeFilter:['style','class','hidden']});var tm=setTimeout(function(){ob.disconnect();window.__waitResult=JSON.stringify({found:false,elapsed:Date.now()-start})},timeout);window.__waitResult=null;return 'waiting...'})('YOUR_SELECTOR',5000,'visible')"
+
+# Poll for result
+agent-browser --cdp 9222 eval "window.__waitResult"
+```
+
+#### Read Console Logs
+
+```bash
+# Inject console interceptor
+agent-browser --cdp 9222 eval "(function(){if(window.__consoleLogs)return 'already injected';window.__consoleLogs=[];var orig={log:console.log,warn:console.warn,error:console.error,info:console.info};['log','warn','error','info'].forEach(function(m){console[m]=function(){var args=Array.prototype.slice.call(arguments).map(function(a){try{return typeof a==='object'?JSON.stringify(a):String(a)}catch(e){return String(a)}});window.__consoleLogs.push({level:m,msg:args.join(' '),ts:Date.now()});orig[m].apply(console,arguments)}});return 'Console interceptor injected'})()"
+
+# Read captured logs
+agent-browser --cdp 9222 eval "JSON.stringify(window.__consoleLogs||[])"
+```
+
+#### Monitor Network Requests
+
+```bash
+# Inject network interceptor
+agent-browser --cdp 9222 eval "(function(){if(window.__networkLogs)return 'already injected';window.__networkLogs=[];var origOpen=XMLHttpRequest.prototype.open;var origSend=XMLHttpRequest.prototype.send;XMLHttpRequest.prototype.open=function(m,u){this.__reqInfo={method:m,url:u,ts:Date.now()};return origOpen.apply(this,arguments)};XMLHttpRequest.prototype.send=function(){var info=this.__reqInfo;var xhr=this;xhr.addEventListener('loadend',function(){window.__networkLogs.push({method:info.method,url:info.url,status:xhr.status,timestamp:info.ts,duration:Date.now()-info.ts})});return origSend.apply(this,arguments)};var origFetch=window.fetch;window.fetch=function(input,init){var method=(init&&init.method)||'GET';var url=typeof input==='string'?input:input.url;var ts=Date.now();return origFetch.apply(this,arguments).then(function(resp){window.__networkLogs.push({method:method,url:url,status:resp.status,timestamp:ts,duration:Date.now()-ts});return resp}).catch(function(err){window.__networkLogs.push({method:method,url:url,status:'error',timestamp:ts,duration:Date.now()-ts,error:err.message});throw err})};return 'Network interceptor injected'})()"
+
+# Read captured requests
+agent-browser --cdp 9222 eval "JSON.stringify(window.__networkLogs||[])"
+```
+
 ## Windows Tips
 
 - **Chrome must be fully closed** before starting with `--remote-debugging-port`. If any Chrome process remains, the port will not bind.
@@ -578,7 +978,7 @@ This workflow applies to both platforms:
 
 ## Best Practices
 
-1. **Wait after navigation**: After navigating to a URL or clicking a link, wait 2-3 seconds (`sleep 2`) before reading content. SPA pages need time to render.
+1. **Smart wait after navigation**: Prefer using the `Wait for Element` injectable script to wait for a specific target element to appear, rather than a blind `sleep 2`. Only fall back to `sleep 2` when you cannot determine a specific element or condition to wait for.
 
 2. **Scroll before interacting**: If the target element might be below the fold, scroll down first. Off-screen elements may fail to click.
 
@@ -595,6 +995,10 @@ This workflow applies to both platforms:
 
 7. **Prefer scrolling over alternative methods**: When content isn't loaded yet (lazy-load, infinite scroll), scroll the real browser page first rather than switching to a different reading strategy.
 
+8. **Avoid redundant reads**: If your last action was a pure read (did not change page state), do not re-read the same content. Only re-read after click, navigation, form submission, or scroll that loads new content. If you already know the exact selector or element index, operate directly without listing all elements first. Never execute the same read command twice in a row.
+
+9. **Run safety check on unfamiliar pages**: Before interacting with a page you haven't verified, inject the `Safety Check (Pre-action)` script to confirm the URL is not on the sensitive site blacklist.
+
 ## Recovery Strategy
 
 If a browser action fails or produces unexpected results:
@@ -605,11 +1009,43 @@ If a browser action fails or produces unexpected results:
 4. **Check for popups/modals**: Dialogs, cookie banners, or overlays may be blocking the target element — dismiss them first
 5. **Do NOT retry blindly**: Never repeat the exact same failed action more than twice. Change your approach instead
 
-## Security Boundaries
+## Security Boundaries (Mandatory Rules)
 
-- Never execute untrusted or user-provided JavaScript in the browser — commands run in the user's authenticated session
-- Avoid interacting with password fields or authentication forms programmatically
-- Do not attempt to access chrome:// pages or browser extension pages — these are blocked by Chrome security
+The following are **enforced rules**, not suggestions. The agent MUST refuse operations that violate them.
+
+### Sensitive Site Blacklist
+
+On the following domains, **only read operations** (get text, get URL, get title, read markdown) are allowed. All click, fill, and execute operations are **forbidden**:
+
+- **Banking**: chase, wellsfargo, bankofamerica, citi, capitalone, usbank, pnc, tdbank, hsbc, and any `.bank` domain
+- **Payments**: paypal, venmo, stripe, square, wise, revolut, robinhood, coinbase, binance
+- **Identity/Auth**: `accounts.google.com`, `login.microsoftonline.com`, `login.live.com`, `icloud.com/account`, `*.okta.com`, `*.auth0.com`, `*.onelogin.com`
+- **Cloud Consoles**: `console.aws.amazon.com`, `console.cloud.google.com`, `portal.azure.com`
+- **Chrome Internal**: `chrome://`, `chrome-extension://`, `about:`
+
+### Password Field Protection
+
+Before executing any fill or click action, check the target element. **Refuse** the operation if the target matches any of:
+
+- `input[type="password"]`
+- `input[name]` containing "password" or "passwd"
+- `input[autocomplete="current-password"]` or `input[autocomplete="new-password"]`
+
+### Payment Button Protection
+
+**Never click** buttons whose text matches any of these patterns:
+
+- English: pay, purchase, buy, checkout, place order, submit order, confirm payment, subscribe, upgrade, donate
+- 中文: 付款, 支付, 购买, 下单, 确认订单, 立即购买
+
+### Pre-action Safety Check
+
+Before any interaction on an unfamiliar page, use the `Safety Check (Pre-action)` injectable script (see macOS/Windows Advanced sections above) to programmatically verify the current URL is not blacklisted. If the check returns `{safe: false}`, switch to read-only mode.
+
+### General Rules
+
+- Never execute untrusted or user-provided JavaScript — commands run in the user's authenticated session
+- Do not attempt to access chrome:// pages or browser extension pages — blocked by Chrome security
 - Cross-origin iframes cannot be accessed — inform the user if the target content is inside one
 - If the user's page contains sensitive financial or medical data, confirm with the user before extracting content
 
@@ -619,5 +1055,5 @@ If a browser action fails or produces unexpected results:
 - **Long content**: For lazy-loaded pages, scroll the real page first to load more content. Use `.substring(start, end)` (macOS) or `eval "document.body.innerText.substring(0, 15000)"` (Windows) to paginate output after content has loaded.
 - **SPA pages**: Wait 2-3 seconds after clicking navigation elements before reading content.
 - **Security**: Commands execute JavaScript in the user's authenticated session. Never run untrusted scripts.
-- **macOS-specific**: No screenshot support via AppleScript. Chrome must be in foreground.
+- **macOS-specific**: AppleScript itself has no screenshot API, but `screencapture -l <windowID>` can capture the Chrome window (see `Capture Page Screenshot` in the macOS Advanced section). Chrome must be in foreground.
 - **Windows-specific**: Chrome must be restarted with debugging flag. Requires agent-browser + Node.js.
