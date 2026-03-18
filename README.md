@@ -2,52 +2,64 @@
 
 [中文说明](./README_CN.md)
 
-Control your local Chrome browser directly from AI coding agents. Access any page you can access — including pages behind corporate authentication (SSO, MFA, security gateways).
+Give your AI coding agent direct access to your Chrome browser — including pages behind corporate SSO, MFA, and security gateways.
 
-Supports **macOS** and **Windows**. Auto-detects platform and uses the appropriate approach.
+No extensions. No servers. No API keys. Just your real Chrome, controlled through native OS mechanisms.
 
 Works with **Claude Code**, **Codex**, **Cursor**, **Gemini CLI**, **Windsurf**, and any agent that can execute shell commands.
 
-## What Makes This Different
+## Why This Exists
 
-This skill is not trying to be the most powerful browser automation stack. It is optimized for one specific job: letting a coding agent use the user's real Chrome session to work on authenticated pages with the lowest possible setup cost.
+Every AI coding agent can fetch public web pages. None of them can access the pages you actually need — behind corporate login, VPN, or MFA.
 
-- **Real Chrome session first**: it is designed around inheriting the user's existing login state, instead of creating a fresh automated browser session.
-- **Built for authenticated/internal pages**: SSO, MFA, and corporate gateways are the primary target, not an edge case.
-- **Pragmatic cross-platform design**: macOS uses native AppleScript with nearly zero setup; Windows uses CDP where that is the practical choice.
-- **Skill-first packaging**: this repository is structured to drop directly into Claude Code, Codex, Cursor, Gemini CLI, and similar agents, instead of asking users to assemble an automation stack first.
-- **Explicit preflight checks**: agents are expected to verify prerequisites before acting, and to stop and guide the user if the environment is not ready.
-- **Structured reasoning framework**: agents follow an EVALUATE → OBSERVE → PLAN → ACT cycle before each action, reducing blind clicks and wasted tool calls.
-- **Built-in best practices**: includes element targeting priority, error recovery strategies, and security boundaries — agents know how to handle failures gracefully.
+This skill solves that by operating on **your real Chrome instance**, inheriting your full login session. If you can see it in Chrome, the agent can read and interact with it.
 
-## Why This Skill?
+## How It's Different
 
-AI coding agents have several ways to access web content, but none of them can handle authenticated pages behind corporate login systems:
+There are many browser automation tools for AI agents. Here's how this one is positioned:
 
-| | Chrome Control (this skill) | agent-browser (Vercel) | WebFetch / Firecrawl |
-|---|---|---|---|
-| **Browser** | User's own Chrome | Playwright Chromium | No browser (HTTP only) |
-| **Login session** | Fully inherited — if you're logged in, Claude can access it | Fresh session, must re-login | None |
-| **Corporate auth (SSO/MFA)** | Works — it's your real browser | Usually blocked (automation fingerprint + cookie isolation) | Blocked |
-| **Install dependencies** | None on macOS; Node.js on Windows | npm + Chromium (~500MB) | API key |
-| **Screenshots** | macOS: via `screencapture` / Windows: yes | Yes | No |
-| **Headless mode** | No (Chrome must be open) | Yes | Inherently headless |
-| **Cross-platform** | macOS + Windows | macOS / Windows / Linux | All platforms |
+| | Chrome Control | Chrome DevTools MCP | agent-browser / Playwright | WebFetch / Firecrawl | Browserbase |
+|---|---|---|---|---|---|
+| **What it is** | A documentation skill — agents learn browser control through instructions | Official Chrome MCP server; talks to Chrome via CDP | Headless browser automation library | HTTP-based content extraction | Cloud-hosted browser sessions |
+| **Browser** | User's own Chrome | User's Chrome (requires debug flag) | Launches separate Chromium | No browser | Remote Chromium |
+| **Login session** | Fully inherited | Inherited (if Chrome is running) | Fresh session each time | None | Fresh session |
+| **Corporate auth** | Works — it's your browser | Works (same Chrome) | Usually blocked | Blocked | Blocked |
+| **Setup** | macOS: 1 checkbox; Windows: npm install | npm install + Chrome restart with flag | npm + Chromium (~500MB) | API key | API key + account |
+| **Agent support** | Claude Code, Codex, Cursor, Gemini CLI, Windsurf | Claude Code (MCP only) | Framework-dependent | Most agents | Framework-dependent |
+| **Architecture** | Zero-dependency docs | MCP server process | Library / MCP server | API service | Cloud API |
 
 ### When to use what
 
-- **Authenticated / internal pages** → **Chrome Control**. This is the only reliable option. Other tools cannot pass corporate login systems.
-- **Automating public websites** (no login needed) → **agent-browser** is more capable, with screenshot, PDF, and headless batch support.
-- **Quick scraping of public pages** → **WebFetch** is the lightest — one call, no setup.
+- **Authenticated / internal pages** → **Chrome Control**. The only option that inherits your real login state with near-zero setup.
+- **Deep browser inspection** (network, performance, debugging) → **Chrome DevTools MCP**. More powerful, but requires Chrome restart with `--remote-debugging-port` and only works via MCP protocol.
+- **Automated testing of public sites** → **agent-browser / Playwright**. Better for headless batch operations, screenshots, PDF generation.
+- **Quick scraping of public content** → **WebFetch / Firecrawl**. Lightest — one HTTP call, no browser needed.
+- **Parallel browser sessions at scale** → **Browserbase**. Cloud-hosted, isolated, but no login session inheritance.
+
+## Design Principles
+
+This skill is intentionally minimal:
+
+1. **Pure documentation, zero infrastructure** — The entire skill is a set of instructions that teach agents how to use `osascript` (macOS) or `agent-browser` (Windows). No extension, no server process, no runtime dependency.
+
+2. **Real session first** — Designed around inheriting the user's existing Chrome login, not creating fresh automated sessions.
+
+3. **Structured reasoning** — Agents follow an EVALUATE → OBSERVE → PLAN → ACT cycle before each action, reducing blind clicks and wasted tool calls.
+
+4. **Safety boundaries** — Built-in blacklists for banking, payment, and auth sites. Password fields and payment buttons are never touched. Pre-action URL verification is mandatory.
+
+5. **Tab preservation** — Agents always open new tabs; the user's existing tabs are never navigated away.
+
+6. **Multi-agent packaging** — One skill, adapted for 5+ agent formats. Same behavior whether you use Claude Code, Codex, Cursor, Gemini CLI, or Windsurf.
 
 ## How It Works
 
 | Platform | Mechanism | Dependencies |
 |---|---|---|
 | **macOS** | AppleScript communicates directly with Chrome | None (native macOS) |
-| **Windows** | Chrome DevTools Protocol (CDP) via agent-browser | Node.js + agent-browser |
+| **Windows** | Chrome DevTools Protocol via agent-browser | Node.js + agent-browser |
 
-Both approaches operate on the user's real Chrome instance, inheriting the full login session.
+Both approaches operate on the user's real Chrome instance. The skill auto-detects the platform (`uname -s`) and uses the appropriate method.
 
 ## Setup
 
@@ -59,20 +71,6 @@ One-time Chrome setting:
 
 That's it. No other setup needed.
 
-Before the agent performs any browser action, it should verify the prerequisite with:
-
-```bash
-osascript -e 'tell application "Google Chrome" to get name'
-osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.title"'
-```
-
-If the JavaScript check fails, the agent should stop and guide the user to:
-
-- Open Chrome
-- Enable `View -> Developer -> Allow JavaScript from Apple Events`
-- Approve any macOS automation permission prompt
-- Retry the check
-
 ### Windows
 
 1. Install [Node.js](https://nodejs.org/)
@@ -81,23 +79,7 @@ If the JavaScript check fails, the agent should stop and guide the user to:
    npm install -g agent-browser
    agent-browser install
    ```
-3. See SKILL.md for the optional `chrome-debug.ps1` helper script
-
-Before the agent performs any browser action, it should verify the prerequisite with:
-
-```powershell
-Get-Command agent-browser
-Invoke-RestMethod -Uri "http://127.0.0.1:9222/json/version"
-```
-
-If either check fails, the agent should stop and guide the user to:
-
-- Install Node.js
-- Run `npm install -g agent-browser`
-- Run `agent-browser install`
-- Fully close Chrome
-- Restart Chrome with `--remote-debugging-port=9222`
-- Retry the check
+3. Start Chrome with debug port: `chrome.exe --remote-debugging-port=9222`
 
 ## Agent Installation
 
@@ -106,15 +88,14 @@ If either check fails, the agent should stop and guide the user to:
 ```bash
 claude install-skill /path/to/browser-control-skill
 ```
-Or copy `skills/chrome-control/` into your project's skill directory.
 
 ### Codex (OpenAI)
 
-Copy `adapters/codex/AGENTS.md` into your project root, or append its contents to your existing `AGENTS.md`.
+Copy `adapters/codex/AGENTS.md` into your project root.
 
 ### Cursor
 
-Copy `adapters/cursor/.cursorrules` into your project root, or append its contents to your existing `.cursorrules`.
+Copy `adapters/cursor/.cursorrules` into your project root, or append to your existing `.cursorrules`.
 
 ### Gemini CLI
 
@@ -122,78 +103,76 @@ Copy `adapters/gemini/GEMINI.md` into your project root.
 
 ### Windsurf
 
-Copy `adapters/windsurf/.windsurfrules` into your project root, or append its contents to your existing `.windsurfrules`.
+Copy `adapters/windsurf/.windsurfrules` into your project root, or append to your existing `.windsurfrules`.
 
-### Other agents
+### Other Agents
 
-Copy `AGENT_INSTRUCTIONS.md` into your project, or paste its contents into the agent's system prompt / custom instructions.
+Copy `AGENT_INSTRUCTIONS.md` into your project, or paste its contents into the agent's system prompt.
 
 ## Usage
 
-The agent follows a structured reasoning cycle for every browser action:
+Once installed, talk to the agent naturally. Use phrases like "in my Chrome" to signal browser control:
 
-1. **Detect** the platform (`uname -s`).
-2. **Run** the platform-specific preflight check.
-3. **Stop and guide** the user through setup if the check fails.
-4. **EVALUATE** — did the last action succeed?
-5. **OBSERVE** — read the current page state.
-6. **PLAN** — decide the single next action.
-7. **ACT** — execute one action, then return to step 4.
+- **Read authenticated pages**: "Read the content of my current Chrome tab"
+- **Navigate**: "Open https://internal.company.com/dashboard in my Chrome"
+- **Click**: "Click the Settings tab"
+- **Extract data**: "Extract all links on this page"
+- **Fill forms**: "Fill in the search box with quarterly report"
 
-Element targeting priority:
-- **macOS**: element index (inject indexing script) → text content match → CSS selector
-- **Windows**: @ref from `snapshot -i` → CSS selector → JavaScript eval
+The agent automatically:
+1. Detects the platform
+2. Runs preflight checks
+3. Guides you through setup if anything is missing
+4. Opens new tabs for navigation (never touches your existing tabs)
+5. Follows the EVALUATE → OBSERVE → PLAN → ACT cycle for each action
 
 ### Quick Start
 
 1. Open the target page in Chrome and log in normally
-2. Tell the agent what you want to do (read content, click, extract data, etc.)
-3. The agent auto-detects the platform and uses the corresponding approach to control Chrome
-4. Results are returned
+2. Tell the agent what you want to do
+3. The agent controls Chrome and returns results
 
-**Note**: Windows users must start Chrome in debug mode before each session (see Setup above).
+## Roadmap
 
-Once installed, the agent can:
-
-- **Read any page you're logged into**: "Read the content of my current Chrome tab"
-- **Navigate and click**: "Click the Settings tab" or "Go to https://..."
-- **Extract data**: "Extract all the links on this page"
-- **Fill forms**: "Fill in the search box with..."
-
-## Example
+This skill is Phase 1 of a larger browser tools evolution:
 
 ```
-You: Read the content of my current Chrome page
-Agent: [extracts page text via AppleScript (macOS) or CDP (Windows)]
-
-You: Click on the "Reports" tab
-Agent: [finds and clicks the element]
-
-You: Navigate to https://internal.company.com/dashboard
-Agent: [navigates the active tab to the URL]
+Phase 1 (current)          Phase 1.5                Phase 2                  Phase 3+
+Pure documentation skill → Chrome DevTools MCP   → WebMCP integration    → Site experience
+AppleScript + CDP           integration               (when Chrome Stable      caching &
+Zero dependencies           Deep browser inspection   supports it, est.       memory
+                                                      2026 H2+)
 ```
+
+The design ensures each phase builds on the previous one rather than replacing it. Even when WebMCP arrives, the current AppleScript/CDP approach remains as a reliable fallback.
+
+## Security
+
+These rules are enforced — the agent will refuse operations that violate them:
+
+- **Sensitive site blacklist**: Banking, payment, auth, and cloud console sites are read-only (no clicks, fills, or JS execution)
+- **Password fields**: Never filled or clicked
+- **Payment buttons**: Never clicked (pay, purchase, checkout, subscribe, etc.)
+- **Pre-action URL check**: Before interacting with any page, the agent verifies the URL against the blacklist
 
 ## Requirements
 
 ### macOS
 - Google Chrome
 - "Allow JavaScript from Apple Events" enabled
-- AppleScript preflight check passes
 
 ### Windows
-- Google Chrome
-- Node.js
+- Google Chrome + Node.js
 - agent-browser (`npm install -g agent-browser`)
 - Chrome started with `--remote-debugging-port=9222`
-- Windows preflight check passes
 
 ## Limitations
 
-- Cannot log in on behalf of the user — the user must be authenticated first
-- macOS: AppleScript itself has no screenshot API; use `screencapture -l <windowID>` to capture the Chrome window. Chrome must be in foreground
+- Cannot log in on behalf of the user — you must be authenticated first
+- macOS: Chrome must be open (AppleScript cannot control a hidden browser)
 - Windows: Chrome must be restarted with debugging flag each session
 - Very large pages need paginated reading
-- Agent follows one-action-at-a-time principle — complex multi-step workflows may require multiple turns
+- One action at a time — complex workflows may require multiple turns
 
 ## License
 

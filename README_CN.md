@@ -2,81 +2,64 @@
 
 [English README](./README.md)
 
-让 AI 编程助手直接操控你的 Chrome 浏览器，访问任何你能访问的页面——包括需要登录认证的内网页面（SSO、MFA、安全网关）。
+让 AI 编程助手直接操控你的 Chrome 浏览器，访问任何你能看到的页面——包括企业 SSO、MFA、安全网关后面的内网页面。
 
-支持 **macOS** 和 **Windows**，自动检测平台并选择对应方案。
+无需扩展。无需服务器。无需 API Key。直接用你真实的 Chrome，通过系统原生机制控制。
 
 兼容 **Claude Code**、**Codex**、**Cursor**、**Gemini CLI**、**Windsurf** 及任何可执行 shell 命令的 AI agent。
 
-## 这个 Skill 的独特之处
+## 为什么做这个
 
-这个 skill 不是为了成为“功能最全”的浏览器自动化框架，而是为了解决一个更具体的问题：让 AI 编程助手以尽可能低的接入成本，直接借用用户真实的 Chrome 登录态去访问和操作受认证页面。
+AI 编程助手都能抓取公开网页，但你真正需要访问的页面——企业内网、需要登录的系统——它们都访问不了。
 
-- **优先复用真实 Chrome 登录态**：核心思路不是新开一个自动化浏览器，而是直接继承用户已经登录的 Chrome session。
-- **把内网/认证页面当成主要场景**：SSO、MFA、企业安全网关不是边缘情况，而是这个 skill 的设计中心。
-- **跨平台策略更务实**：macOS 直接走原生 AppleScript，几乎零依赖；Windows 则走更实际的 CDP 路线。
-- **以 skill / adapter 为中心，而不是以框架为中心**：目标是让 Claude Code、Codex、Cursor、Gemini CLI 等 agent 可以直接接入，而不是先搭一整套自动化基础设施。
-- **前置条件透明**：agent 在真正执行前应先做 preflight check，环境没准备好就先停下并引导用户设置。
-- **结构化推理框架**：Agent 在每次操作前遵循 EVALUATE → OBSERVE → PLAN → ACT 循环，减少盲目点击和无效 tool call。
-- **内置最佳实践**：包含元素定位优先级、错误恢复策略和安全边界——Agent 知道如何优雅处理失败情况。
+这个 skill 的思路很简单：直接操作**你自己的 Chrome**，继承你已有的登录态。你在 Chrome 里能看到的，agent 就能读取和操作。
 
-## 为什么需要这个 Skill？
+## 和其他工具的区别
 
-AI 编程助手有多种访问网页的方式，但在面对企业级认证系统时，它们都无法通过登录：
+市面上有很多 AI 浏览器工具，定位各不相同：
 
-| | Chrome Control（本 Skill） | agent-browser（Vercel） | WebFetch / Firecrawl |
-|---|---|---|---|
-| **浏览器** | 用户自己的 Chrome | Playwright 启动的 Chromium | 无浏览器，纯 HTTP 请求 |
-| **登录态** | 完整继承——已登录即可用 | 全新 session，需重新登录 | 无 |
-| **企业认证（SSO/MFA）** | 能通过——就是你自己的浏览器 | 通常被拦截（自动化指纹 + cookie 隔离） | 被拦截 |
-| **安装依赖** | macOS 无需安装；Windows 需 Node.js | npm + Chromium（约 500MB） | 需要 API Key |
-| **截图** | macOS: 可通过 `screencapture` / Windows: 支持 | 支持 | 不支持 |
-| **无头模式** | 不支持（Chrome 必须打开） | 支持 | 天然无头 |
-| **跨平台** | macOS + Windows | macOS / Windows / Linux | 全平台 |
+| | Chrome Control | Chrome DevTools MCP | agent-browser / Playwright | WebFetch / Firecrawl | Browserbase |
+|---|---|---|---|---|---|
+| **本质** | 文档型 skill——agent 通过指令学会控制浏览器 | Chrome 官方 MCP 服务器，通过 CDP 协议通信 | 无头浏览器自动化库 | HTTP 内容提取服务 | 云托管浏览器会话 |
+| **浏览器** | 用户自己的 Chrome | 用户的 Chrome（需调试模式启动） | 独立启动 Chromium | 无浏览器 | 远程 Chromium |
+| **登录态** | 完整继承 | 继承（Chrome 需在运行） | 每次全新会话 | 无 | 全新会话 |
+| **企业认证** | 能通过——就是你的浏览器 | 能通过（同一个 Chrome） | 通常被拦截 | 被拦截 | 被拦截 |
+| **安装成本** | macOS: 勾一个选项；Windows: npm install | npm install + 重启 Chrome 加调试参数 | npm + Chromium (~500MB) | API Key | API Key + 注册账号 |
+| **Agent 支持** | Claude Code, Codex, Cursor, Gemini CLI, Windsurf | Claude Code（仅 MCP） | 取决于框架 | 大部分 agent | 取决于框架 |
+| **架构** | 零依赖的纯文档 | MCP 服务器进程 | 库 / MCP 服务器 | API 服务 | 云 API |
 
-### 什么场景用什么工具
+### 什么场景用什么
 
-- **需要访问内网 / 登录后的页面** → **Chrome Control**。这是唯一可靠的方案，其他工具都过不了企业登录。
-- **自动化操作公开网页**（无需登录） → **agent-browser** 功能更全，支持截图、PDF、无头批量操作。
-- **快速抓取公开网页内容** → **WebFetch** 最轻量，一行命令搞定。
+- **内网 / 登录后的页面** → **Chrome Control**。唯一能直接继承登录态、几乎零配置的方案。
+- **深度浏览器调试**（网络、性能、DOM 检查） → **Chrome DevTools MCP**。功能更强，但需要 Chrome 以调试模式重启，且只支持 MCP 协议。
+- **公开网站的自动化测试** → **agent-browser / Playwright**。无头批量操作、截图、PDF 生成更合适。
+- **快速抓取公开内容** → **WebFetch / Firecrawl**。最轻量，一个 HTTP 请求搞定。
+- **大规模并行浏览器会话** → **Browserbase**。云端隔离，但没有登录态继承。
+
+## 设计原则
+
+这个 skill 有意保持极简：
+
+1. **纯文档，零基础设施** —— 整个 skill 就是一组指令，教 agent 用 `osascript`（macOS）或 `agent-browser`（Windows）控制 Chrome。没有扩展、没有服务器进程、没有运行时依赖。
+
+2. **真实会话优先** —— 核心设计围绕继承用户已有的 Chrome 登录态，而不是创建新的自动化会话。
+
+3. **结构化推理** —— Agent 在每次操作前遵循 EVALUATE → OBSERVE → PLAN → ACT 循环，减少盲目点击和无效调用。
+
+4. **安全边界** —— 内置银行、支付、认证网站黑名单。密码字段和支付按钮永远不会被触碰。操作前强制 URL 验证。
+
+5. **标签页保护** —— Agent 始终打开新标签页，用户已有的标签页永远不会被跳转。
+
+6. **多 Agent 适配** —— 一个 skill，适配 5+ 种 agent 格式。无论用 Claude Code、Codex、Cursor、Gemini CLI 还是 Windsurf，行为一致。
 
 ## 工作原理
 
 | 平台 | 实现方式 | 依赖 |
 |---|---|---|
 | **macOS** | AppleScript 直接与 Chrome 通信 | 无（macOS 原生支持） |
-| **Windows** | Chrome DevTools Protocol (CDP) + agent-browser | Node.js + agent-browser |
+| **Windows** | Chrome DevTools Protocol + agent-browser | Node.js + agent-browser |
 
-两种方案都操作用户自己的 Chrome 实例，完整继承登录状态。Skill 会自动检测当前平台（`uname -s`），选择对应方案执行。
-
-## 各 Agent 安装方式
-
-### Claude Code
-
-```bash
-claude install-skill /path/to/browser-control-skill
-```
-或将 `skills/chrome-control/` 目录复制到项目的 skill 目录下。
-
-### Codex (OpenAI)
-
-将 `adapters/codex/AGENTS.md` 复制到项目根目录，或将内容追加到已有的 `AGENTS.md`。
-
-### Cursor
-
-将 `adapters/cursor/.cursorrules` 复制到项目根目录，或将内容追加到已有的 `.cursorrules`。
-
-### Gemini CLI
-
-将 `adapters/gemini/GEMINI.md` 复制到项目根目录。
-
-### Windsurf
-
-将 `adapters/windsurf/.windsurfrules` 复制到项目根目录，或将内容追加到已有的 `.windsurfrules`。
-
-### 其他 Agent
-
-将 `AGENT_INSTRUCTIONS.md` 复制到项目中，或将内容粘贴到 agent 的 system prompt / 自定义指令中。
+两种方案都操作用户自己的 Chrome 实例，完整继承登录状态。Skill 自动检测平台（`uname -s`），选择对应方案。
 
 ## 环境配置
 
@@ -86,21 +69,7 @@ claude install-skill /path/to/browser-control-skill
 
 > Chrome 菜单栏 → **查看** → **开发者** → **允许 Apple 事件中的 JavaScript**
 
-无需安装任何额外工具。
-
-在 agent 执行任何浏览器操作之前，应先验证前置条件：
-
-```bash
-osascript -e 'tell application "Google Chrome" to get name'
-osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.title"'
-```
-
-如果 JavaScript 检查失败，agent 应先停止操作，并引导用户：
-
-- 打开 Chrome
-- 开启 `查看 -> 开发者 -> 允许 Apple 事件中的 JavaScript`
-- 如果 macOS 弹出自动化授权提示，选择允许
-- 然后重新执行检查
+无需安装任何工具。
 
 ### Windows
 
@@ -110,90 +79,99 @@ osascript -e 'tell application "Google Chrome" to execute active tab of front wi
    npm install -g agent-browser
    agent-browser install
    ```
-3. SKILL.md 中提供了 `chrome-debug.ps1` 辅助脚本，可以一键完成 Chrome 重启和调试端口绑定
+3. 以调试模式启动 Chrome：`chrome.exe --remote-debugging-port=9222`
 
-在 agent 执行任何浏览器操作之前，应先验证前置条件：
+## 各 Agent 安装方式
 
-```powershell
-Get-Command agent-browser
-Invoke-RestMethod -Uri "http://127.0.0.1:9222/json/version"
+### Claude Code
+
+```bash
+claude install-skill /path/to/browser-control-skill
 ```
 
-如果任一检查失败，agent 应先停止操作，并引导用户：
+### Codex (OpenAI)
 
-- 安装 Node.js
-- 运行 `npm install -g agent-browser`
-- 运行 `agent-browser install`
-- 完全关闭 Chrome
-- 使用 `--remote-debugging-port=9222` 重新启动 Chrome
-- 然后重新执行检查
+将 `adapters/codex/AGENTS.md` 复制到项目根目录。
+
+### Cursor
+
+将 `adapters/cursor/.cursorrules` 复制到项目根目录，或追加到已有的 `.cursorrules`。
+
+### Gemini CLI
+
+将 `adapters/gemini/GEMINI.md` 复制到项目根目录。
+
+### Windsurf
+
+将 `adapters/windsurf/.windsurfrules` 复制到项目根目录，或追加到已有的 `.windsurfrules`。
+
+### 其他 Agent
+
+将 `AGENT_INSTRUCTIONS.md` 复制到项目中，或将内容粘贴到 agent 的 system prompt。
 
 ## 使用方式
 
-Agent 在每次浏览器操作前遵循结构化推理循环：
+安装后，用自然语言让 agent 操作浏览器。建议使用"我的 Chrome"等措辞来明确触发浏览器控制：
 
-1. 检测当前平台
-2. 执行该平台对应的前置检查
-3. 如果检查失败，先提示用户完成设置
-4. **EVALUATE** — 上次操作是否成功？
-5. **OBSERVE** — 读取当前页面状态
-6. **PLAN** — 决定下一步单一操作
-7. **ACT** — 执行一个操作，然后回到第 4 步
-
-元素定位优先级：
-- **macOS**：元素索引（注入索引脚本） → 按文本内容匹配 → CSS 选择器
-- **Windows**：`snapshot -i` 的 @ref 引用 → CSS 选择器 → JavaScript eval
-
-安装后，直接用自然语言让 Agent 操作浏览器：
-
-- **读取已登录的页面内容**："帮我读一下当前 Chrome 标签页的内容"
-- **导航和点击**："点击设置标签" 或 "打开 https://..."
+- **读取已登录的页面**："帮我读一下我 Chrome 里当前标签页的内容"
+- **导航**："在我的 Chrome 里打开 https://internal.company.com/dashboard"
+- **点击**："点击设置标签"
 - **提取数据**："提取这个页面上所有的链接"
-- **填写表单**："在搜索框里输入..."
+- **填写表单**："在搜索框里输入 quarterly report"
 
-## 使用示例
+Agent 会自动：
+1. 检测当前平台
+2. 执行前置检查
+3. 如有问题，引导你完成配置
+4. 打开新标签页进行导航（不会影响你现有的标签页）
+5. 每个操作都遵循 EVALUATE → OBSERVE → PLAN → ACT 循环
+
+### 快速开始
+
+1. 在 Chrome 中打开目标页面并登录
+2. 告诉 Agent 你要做什么
+3. Agent 操作 Chrome 并返回结果
+
+## 发展路线
+
+这个 skill 是浏览器工具层分阶段演进的第一步：
 
 ```
-你：读一下我当前 Chrome 页面的内容
-Agent：[通过 AppleScript (macOS) 或 CDP (Windows) 提取页面文本]
-
-你：点击「报表」标签
-Agent：[找到文本为「报表」的元素并点击]
-
-你：打开 https://internal.company.com/dashboard
-Agent：[导航到目标 URL]
+Phase 1（当前）           Phase 1.5               Phase 2                  Phase 3+
+纯文档 skill           → Chrome DevTools MCP   → WebMCP 集成            → 站点经验缓存
+AppleScript + CDP        集成                     （Chrome Stable 支持      与记忆机制
+零依赖                   深度浏览器检查           后，预计 2026 下半年+）
 ```
 
-## 使用流程
+设计上确保每个阶段是叠加而非替换。即使 WebMCP 到来，现有的 AppleScript/CDP 方案仍然作为可靠的兜底。
 
-1. 用户在 Chrome 中正常打开目标页面并登录
-2. 告诉 Agent 你要做什么（读取内容、点击、提取数据等）
-3. Agent 自动检测平台，使用对应方案操作你的 Chrome
-4. 返回结果
+## 安全机制
 
-**注意**：Windows 用户每次使用前需要用调试模式启动 Chrome（详见上文「环境要求 → Windows」章节）。
+以下规则是强制执行的——agent 会拒绝违反这些规则的操作：
+
+- **敏感网站黑名单**：银行、支付、认证、云控制台网站只能读取（不能点击、填写或执行 JS）
+- **密码字段**：永远不会填写或点击
+- **支付按钮**：永远不会点击（pay、purchase、checkout、subscribe 等）
+- **操作前 URL 检查**：在与任何页面交互前，agent 会先验证 URL 是否在黑名单中
 
 ## 环境要求
 
 ### macOS
 - Google Chrome
 - 已开启「允许 Apple 事件中的 JavaScript」
-- AppleScript 前置检查通过
 
 ### Windows
-- Google Chrome
-- Node.js
+- Google Chrome + Node.js
 - agent-browser（`npm install -g agent-browser`）
 - Chrome 以 `--remote-debugging-port=9222` 启动
-- Windows 前置检查通过
 
 ## 已知限制
 
-- 无法代替用户登录——用户必须先在 Chrome 中完成认证
-- macOS：AppleScript 本身不提供截图 API，但可通过 `screencapture -l <windowID>` 截取 Chrome 窗口；Chrome 必须处于打开状态
+- 无法代替用户登录——你必须先在 Chrome 中完成认证
+- macOS：Chrome 必须处于打开状态（AppleScript 无法控制隐藏的浏览器）
 - Windows：每次使用前需要用调试模式重启 Chrome
 - 超长页面内容需要分段读取
-- Agent 遵循每次一个操作的原则——复杂的多步骤工作流可能需要多轮交互
+- 每次一个操作——复杂工作流可能需要多轮交互
 
 ## 许可证
 
