@@ -17,7 +17,7 @@ Run `uname -s` first:
 
 ## Element Targeting
 
-**macOS**: element index (inject indexing script, then `window.__interactiveElements[i]` — most reliable) → text match → CSS selector
+**macOS**: element index (inject indexing script, then `window.__interactiveElements[i]` — most reliable) → text match → CSS selector → coordinates (last resort)
 **Windows**: @ref from `snapshot -i` (preferred) → CSS selector → eval JS
 
 ## macOS (AppleScript)
@@ -45,7 +45,7 @@ osascript -e 'tell application "Google Chrome" to execute active tab of front wi
 osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.documentElement.outerHTML.substring(0, 10000)"'
 
 # Navigate
-osascript -e 'tell application "Google Chrome" to set URL of active tab of front window to "URL_HERE"'
+osascript -e 'tell application "Google Chrome" to tell front window to make new tab with properties {URL:"URL_HERE"}'
 
 # Click by CSS selector
 osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.querySelector(\"SELECTOR\").click()"'
@@ -145,8 +145,10 @@ These rules are **enforced** — refuse any operation that violates them.
 - **Scroll before clicking** if the target element might be off-screen.
 - For lazy-loaded or infinite-scroll pages, scroll the real page first, wait for new content, then read again.
 - Prefer scrolling the live browser page over alternate fetch methods.
+- **Never navigate in the user's current tab** — always open a new tab (`make new tab with properties {URL:...}`) or a dedicated task window. The user's existing tabs must be preserved.
 - **One action at a time** — observe the result before proceeding to the next action.
 - On Windows, use `snapshot -i` to get @ref labels before interacting with elements.
 - For long pages, paginate with `.substring(0, 15000)` on macOS.
 - If an action fails, re-read the page, try alternative targeting, and do NOT retry the same failed action more than twice.
 - `missing value` from AppleScript means JS returned undefined — return a string explicitly.
+- If `front window` throws `-1719` (hidden Chrome window), use JXA to find a visible window: `osascript -l JavaScript -e 'function run(){var c=Application("Google Chrome");var w=c.windows();for(var i=0;i<w.length;i++){if(w[i].visible())return c.execute(w[i].activeTab(),{javascript:"document.title"});}return"No visible window"}'`

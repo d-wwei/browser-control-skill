@@ -104,6 +104,8 @@ osascript -e 'tell application "Google Chrome" to get name'
 osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.title"'
 ```
 
+> Note: `get name` always succeeds (reads app metadata without launching Chrome). The `execute javascript` command will auto-launch Chrome via AppleScript's `tell application` mechanism, and if Chrome has session restore enabled (default), previous tabs are restored — so the JS command may succeed even if Chrome was not running. The real check is whether the JS command returns a valid title.
+
 If the JavaScript command fails, do not continue. Tell the user to:
 
 - Open Chrome
@@ -169,10 +171,40 @@ EOF
 
 **Navigation:**
 
-Navigate to URL:
+> **Never navigate in the user's current tab.** Always open a new tab or use a dedicated task window. The user's existing tabs must be preserved.
+
+Navigate to URL (new tab in current window):
 ```bash
-osascript -e 'tell application "Google Chrome" to set URL of active tab of front window to "https://example.com"'
+osascript -e 'tell application "Google Chrome" to tell front window to make new tab with properties {URL:"https://example.com"}'
 ```
+
+Navigate to URL in a dedicated task window (recommended for multi-step workflows):
+```bash
+osascript -l JavaScript -e '
+function run() {
+    var chrome = Application("Google Chrome");
+    // Check if a task window already exists (named tab with __agentTask marker)
+    var wins = chrome.windows();
+    var taskWin = null;
+    for (var i = 0; i < wins.length; i++) {
+        var tabs = wins[i].tabs();
+        for (var j = 0; j < tabs.length; j++) {
+            if (tabs[j].url().indexOf("__agentTask") !== -1) { taskWin = wins[i]; break; }
+        }
+        if (taskWin) break;
+    }
+    if (!taskWin) {
+        // Create a new window for agent tasks
+        taskWin = chrome.Window().make();
+    }
+    // Navigate in the task window
+    taskWin.activeTab.url = "https://example.com";
+    return "task window " + taskWin.id() + ", tabs: " + taskWin.tabs.length;
+}
+'
+```
+
+> When starting a multi-step workflow, create a dedicated Chrome window for all task-related navigation. This keeps the user's existing windows and tabs untouched. Subsequent navigations within the same task should add new tabs to this task window or reuse tabs the agent already opened.
 
 Switch to specific tab in the front window:
 ```bash
@@ -235,6 +267,7 @@ osascript -e 'tell application "Google Chrome" to execute active tab of front wi
 - **`missing value` returned**: JavaScript returned `undefined`/`null`. Make the JS expression explicitly return a string.
 - **Escaped quotes**: Use `\"` for double quotes inside AppleScript JavaScript strings.
 - **Multiple windows**: Commands target `front window` by default. Use `window 2`, `window 3` for others.
+- **`-1719` invalid index on `front window`**: Chrome may have hidden/invisible windows (PWAs, background apps, multi-desktop). When `front window` resolves to a hidden window, AppleScript throws `-1719`. Use JXA to find a visible window: `osascript -l JavaScript -e 'function run(){var c=Application("Google Chrome");var w=c.windows();for(var i=0;i<w.length;i++){if(w[i].visible())return c.execute(w[i].activeTab(),{javascript:"document.title"});}return"No visible window"}'`
 - **Screenshots**: AppleScript has no screenshot API, but `screencapture -l <windowID>` captures the Chrome window. Get the window ID: `osascript -e 'tell application "Google Chrome" to id of front window'`.
 
 ---
@@ -344,8 +377,9 @@ agent-browser --cdp 9222 eval "window.scrollTo(0, document.body.scrollHeight); '
 1. **Detect platform**.
 2. **Run the platform preflight check**.
 3. **If preflight fails, stop and guide the user through setup**.
-4. **Ask the user** to open the target URL in Chrome and log in normally.
-5. **Confirm the page is loaded**:
+4. **Open a dedicated task window** (macOS) or note the current tab (Windows) — never navigate in the user's existing tabs.
+5. **Ask the user** to open the target URL in Chrome and log in normally (if authentication is needed).
+6. **Confirm the page is loaded**:
    - macOS: `osascript -e 'tell application "Google Chrome" to return URL of active tab of front window'`
    - Windows: `agent-browser --cdp 9222 get url`
 6. **If the page is long, lazy-loaded, or infinite-scroll, scroll the real page first**:
@@ -369,6 +403,7 @@ agent-browser --cdp 9222 eval "window.scrollTo(0, document.body.scrollHeight); '
 6. **Paginate long content**: Use `.substring(start, end)` on macOS. Never read an entire very long page at once.
 7. **Prefer scrolling**: For lazy-loaded content, scroll the real page rather than switching strategies.
 8. **Avoid redundant reads**: If your last action was a pure read (did not change page state), do not re-read the same content. Only re-read after click, navigation, form submission, or scroll that loads new content. If you already know the exact selector or element index, operate directly without listing all elements first. Never execute the same read command twice in a row.
+9. **Never navigate in the user's current tab**: Always open a new tab or use a dedicated task window. The user's existing tabs and their state must be preserved. For multi-step workflows, create a dedicated Chrome window and perform all navigations there.
 
 ## Recovery Strategy
 
@@ -416,7 +451,7 @@ Before any interaction (click/fill/execute) on an unfamiliar page, verify the cu
 
 - Never execute untrusted or user-provided JavaScript — commands run in the user's authenticated session
 - Cross-origin iframes are not accessible
-- Do not attempt to access chrome:// pages or browser extension pages — blocked by Chrome security
+- `chrome://` pages allow basic JS execution (e.g., `document.title`) but all meaningful content is inside closed shadow DOM — `innerText` returns empty, interactive elements are unreachable, and clicks have no effect. Treat these pages as effectively inaccessible.
 - Confirm with the user before extracting sensitive financial or medical data
 
 ## Limitations

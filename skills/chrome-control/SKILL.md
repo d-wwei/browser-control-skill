@@ -201,14 +201,37 @@ EOF
 
 ### Navigation
 
-#### Navigate to a URL
+> **Never navigate in the user's current tab.** Always open a new tab or use a dedicated task window. The user's existing tabs must be preserved.
+
+#### Navigate to a URL (new tab)
 
 ```bash
-osascript -e '
-tell application "Google Chrome"
-    set URL of active tab of front window to "https://example.com"
-end tell'
+osascript -e 'tell application "Google Chrome" to tell front window to make new tab with properties {URL:"https://example.com"}'
 ```
+
+#### Navigate in a Dedicated Task Window (recommended for multi-step workflows)
+
+```bash
+osascript -l JavaScript -e '
+function run() {
+    var chrome = Application("Google Chrome");
+    var wins = chrome.windows();
+    var taskWin = null;
+    for (var i = 0; i < wins.length; i++) {
+        var tabs = wins[i].tabs();
+        for (var j = 0; j < tabs.length; j++) {
+            if (tabs[j].url().indexOf("__agentTask") !== -1) { taskWin = wins[i]; break; }
+        }
+        if (taskWin) break;
+    }
+    if (!taskWin) { taskWin = chrome.Window().make(); }
+    taskWin.activeTab.url = "https://example.com";
+    return "task window " + taskWin.id() + ", tabs: " + taskWin.tabs.length;
+}
+'
+```
+
+> When starting a multi-step workflow, create a dedicated Chrome window for all task-related navigation. Subsequent navigations within the same task should add new tabs to this window or reuse tabs the agent already opened.
 
 #### Switch to a Specific Tab in the Front Window
 
@@ -707,6 +730,20 @@ function run() {
 - **`missing value` returned**: The JavaScript returned `undefined` or `null`. Ensure the JS expression explicitly returns a string.
 - **Escaped quotes**: Inside AppleScript's JavaScript strings, use `\"` for double quotes. For complex JS, use heredoc: `osascript <<'EOF' ... EOF`.
 - **Multiple windows**: Commands target `front window` by default. Use `window 2`, `window 3` for other windows.
+- **`-1719` invalid index error on `front window`**: Chrome may have hidden/invisible windows (e.g., from PWAs, background apps, or multi-desktop setups). When `front window` points to a hidden window, AppleScript throws `error -1719`. Fix: use JXA to find a visible window:
+  ```bash
+  osascript -l JavaScript -e '
+  function run() {
+      var chrome = Application("Google Chrome");
+      var wins = chrome.windows();
+      for (var i = 0; i < wins.length; i++) {
+          if (wins[i].visible()) {
+              return chrome.execute(wins[i].activeTab(), {javascript: "document.title"});
+          }
+      }
+      return "No visible Chrome window found";
+  }'
+  ```
 - **Screenshots**: Use `screencapture -l <windowID>` where windowID comes from `osascript -e 'tell application "Google Chrome" to id of front window'`. See the `Capture Page Screenshot` section for annotated screenshot support.
 
 ---
@@ -1049,7 +1086,7 @@ Before any interaction on an unfamiliar page, use the `Safety Check (Pre-action)
 ### General Rules
 
 - Never execute untrusted or user-provided JavaScript — commands run in the user's authenticated session
-- Do not attempt to access chrome:// pages or browser extension pages — blocked by Chrome security
+- `chrome://` pages allow basic JS execution (e.g., `document.title`) but all meaningful content is inside closed shadow DOM — `innerText` returns empty, interactive elements are unreachable, and clicks have no effect. Treat these pages as effectively inaccessible.
 - Cross-origin iframes cannot be accessed — inform the user if the target content is inside one
 - If the user's page contains sensitive financial or medical data, confirm with the user before extracting content
 
