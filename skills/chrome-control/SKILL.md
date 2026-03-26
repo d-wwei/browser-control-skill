@@ -14,6 +14,27 @@ Control the user's local Chrome browser using their real login session to access
 - Read content from pages that require login
 - Automate repetitive browser interactions (clicking, form filling, navigation)
 - Extract text, HTML, or structured data from web pages the user is already logged into
+- **Write operations**: fill forms, submit data, upload files, compose messages on web apps
+- **Rich interactions**: interact with React/Vue apps, rich text editors, file pickers, dropdowns
+- **Authenticated actions**: create tickets, post content, manage dashboards behind login
+
+## Operation Mode Decision
+
+This skill operates in two modes. Choose based on the task:
+
+| Task Type | Mode | Why |
+|---|---|---|
+| Read page text/HTML | **AppleScript** (macOS) / **agent-browser** (Windows) | Simple, fast, zero setup |
+| Click links, basic form fill | **AppleScript** / **agent-browser** | Sufficient for most interactions |
+| Navigate between pages | **AppleScript** / **agent-browser** | Standard navigation works fine |
+| Upload files | **CDP Enhanced** | Requires `DOM.setFileInputFiles` — no JS equivalent |
+| Rich text editors (Notion, Slack, Gmail compose) | **CDP Enhanced** | Requires `Input.insertText` for trusted input |
+| Sites checking `isTrusted` on events | **CDP Enhanced** | JS `.click()` creates untrusted events; CDP creates trusted ones |
+| Keyboard shortcuts (Enter to submit, Tab between fields) | **CDP Enhanced** | Requires `Input.dispatchKeyEvent` |
+| Hover-triggered menus | **CDP Enhanced** | Requires `Input.dispatchMouseEvent(mouseMoved)` |
+| File dialogs, drag-and-drop | **CDP Enhanced** | Requires real mouse event dispatch |
+
+**Rule of thumb**: Start with the basic mode. Upgrade to CDP Enhanced only when basic mode fails (e.g., click doesn't work, form value doesn't stick, file upload needed).
 
 ## Platform Detection
 
@@ -748,6 +769,91 @@ function run() {
 
 ---
 
+# macOS CDP Enhanced Mode (Optional)
+
+When basic AppleScript operations are insufficient (file uploads, rich text editing, trusted clicks, keyboard input), enable Chrome's debugging port to access the full CDP protocol. This is an **optional upgrade** — most read and simple click/fill operations work fine with AppleScript alone.
+
+## Enabling CDP on macOS
+
+Chrome must be started with the debugging flag. Two approaches:
+
+### Option A: Start a separate debug-enabled Chrome (recommended — preserves existing session)
+
+```bash
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
+  --remote-debugging-port=9222 \
+  --user-data-dir="$HOME/.chrome-cdp-profile" \
+  --no-first-run &
+```
+
+> This launches a second Chrome instance with its own profile. The user can log in normally. Their existing Chrome windows are not affected.
+
+### Option B: Restart Chrome with debugging (uses existing profile)
+
+```bash
+osascript -e 'tell application "Google Chrome" to quit'
+sleep 2
+open -a "Google Chrome" --args --remote-debugging-port=9222
+```
+
+> This restarts the user's existing Chrome. All tabs will be restored, but any unsaved work may be lost.
+
+## macOS CDP Preflight
+
+After enabling the debugging port, verify the connection:
+
+```bash
+curl -s http://localhost:9222/json/version | python3 -c "import sys,json; v=json.load(sys.stdin); print(f'Browser: {v[\"Browser\"]}')"
+```
+
+If this returns the browser version, CDP is ready. If it fails, Chrome is not running with the debugging port.
+
+## CDP Helper Setup
+
+Create the helper script (one-time). This is a self-contained Python 3 script with zero external dependencies:
+
+```bash
+curl -sL https://raw.githubusercontent.com/d-wwei/browser-control-skill/main/skills/chrome-control/scripts/cdp-helper.py -o /tmp/cdp-helper.py
+chmod +x /tmp/cdp-helper.py
+```
+
+Or if the script is already in the skill directory:
+
+```bash
+cp skills/chrome-control/scripts/cdp-helper.py /tmp/cdp-helper.py
+chmod +x /tmp/cdp-helper.py
+```
+
+Verify:
+
+```bash
+python3 /tmp/cdp-helper.py info
+```
+
+This should list the browser version and open tabs.
+
+## macOS CDP Quick Reference
+
+All CDP commands use the helper script:
+
+```bash
+python3 /tmp/cdp-helper.py click <x> <y>                     # Trusted mouse click
+python3 /tmp/cdp-helper.py type "text"                        # Type into focused element
+python3 /tmp/cdp-helper.py key Enter                          # Press key
+python3 /tmp/cdp-helper.py key a "ctrl"                       # Key with modifier
+python3 /tmp/cdp-helper.py upload "input[type=file]" /path/to/file.png   # File upload
+python3 /tmp/cdp-helper.py select "#country" "US"             # Set dropdown value
+python3 /tmp/cdp-helper.py hover <x> <y>                      # Hover (trigger menus)
+python3 /tmp/cdp-helper.py evaluate "document.title"          # Run JS
+python3 /tmp/cdp-helper.py screenshot /tmp/page.png           # Page screenshot
+python3 /tmp/cdp-helper.py wait ".success-message" 5000       # Wait for element
+python3 /tmp/cdp-helper.py raw "Input.dispatchMouseEvent" '{"type":"mouseMoved","x":100,"y":200}'
+```
+
+See the [Advanced Write Operations (CDP)](#advanced-write-operations-cdp) section below for detailed usage and patterns.
+
+---
+
 # Windows Approach (Chrome CDP)
 
 Uses Chrome's built-in remote debugging protocol (CDP). Requires a helper script to manage Chrome lifecycle.
@@ -984,6 +1090,20 @@ agent-browser --cdp 9222 eval "(function(){if(window.__networkLogs)return 'alrea
 agent-browser --cdp 9222 eval "JSON.stringify(window.__networkLogs||[])"
 ```
 
+## Windows CDP Helper (Optional)
+
+For advanced write operations on Windows (file upload, trusted click, keyboard), the CDP helper script provides the same convenient commands as on macOS:
+
+```powershell
+# Download helper
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/d-wwei/browser-control-skill/main/skills/chrome-control/scripts/cdp-helper.py" -OutFile "$env:TEMP\cdp-helper.py"
+
+# Verify
+python3 "$env:TEMP\cdp-helper.py" info
+```
+
+Usage is identical to macOS — see [Advanced Write Operations (CDP)](#advanced-write-operations-cdp) below.
+
 ## Windows Tips
 
 - **Chrome must be fully closed** before starting with `--remote-debugging-port`. If any Chrome process remains, the port will not bind.
@@ -1017,6 +1137,387 @@ This workflow applies to both platforms:
 
 ---
 
+# Advanced Write Operations (CDP)
+
+These operations require Chrome's debugging port (`--remote-debugging-port=9222`) and the CDP helper script. They work identically on macOS and Windows.
+
+**When to use these**: Only when basic AppleScript/agent-browser operations fail. Start with basic mode; escalate to CDP when needed.
+
+## Getting Element Coordinates for CDP Click
+
+CDP trusted clicks operate on **viewport coordinates**, not CSS selectors. Use this JS to find an element's click target:
+
+**macOS (AppleScript):**
+```bash
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "
+  var el = document.querySelector(\"YOUR_SELECTOR\");
+  if (!el) { \"Element not found\" } else {
+    var r = el.getBoundingClientRect();
+    JSON.stringify({x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2), tag: el.tagName, text: (el.textContent||\"\").trim().substring(0,50)});
+  }
+"'
+```
+
+**Windows (agent-browser):**
+```bash
+agent-browser --cdp 9222 eval "var el = document.querySelector('YOUR_SELECTOR'); if (!el) 'not found'; else { var r = el.getBoundingClientRect(); JSON.stringify({x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2)}); }"
+```
+
+**By element index** (after running `List Interactive Elements`):
+```bash
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "
+  var el = window.__interactiveElements[TARGET_INDEX];
+  if (!el) { \"not found\" } else {
+    var r = el.getBoundingClientRect();
+    JSON.stringify({x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2)});
+  }
+"'
+```
+
+## P0: Trusted Click (isTrusted Events)
+
+Many modern web apps (React, Angular, Salesforce, Google Workspace) check `event.isTrusted` and ignore synthetic JS clicks. CDP `Input.dispatchMouseEvent` creates trusted events that pass these checks.
+
+**When to use**: JS `.click()` works but the app doesn't respond (no navigation, no dropdown open, no form submission).
+
+```bash
+# Step 1: Get coordinates of target element (using any method above)
+# Step 2: CDP trusted click
+python3 /tmp/cdp-helper.py click <x> <y>
+```
+
+**Full workflow example — click a button the app ignores via JS:**
+```bash
+# Find the button coordinates
+COORDS=$(osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "var el=document.querySelector(\"button.submit\"); var r=el.getBoundingClientRect(); JSON.stringify({x:r.left+r.width/2, y:r.top+r.height/2})"')
+X=$(echo "$COORDS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(int(d['x']))")
+Y=$(echo "$COORDS" | python3 -c "import sys,json; d=json.load(sys.stdin); print(int(d['y']))")
+
+# CDP trusted click
+python3 /tmp/cdp-helper.py click "$X" "$Y"
+```
+
+## P0: Keyboard Input
+
+Essential for: form submission (Enter), field navigation (Tab), closing dialogs (Escape), text selection (Ctrl+A), and any keyboard-driven interaction.
+
+**Single key press:**
+```bash
+python3 /tmp/cdp-helper.py key Enter
+python3 /tmp/cdp-helper.py key Tab
+python3 /tmp/cdp-helper.py key Escape
+python3 /tmp/cdp-helper.py key Backspace
+python3 /tmp/cdp-helper.py key ArrowDown
+python3 /tmp/cdp-helper.py key Space
+```
+
+**Key with modifiers:**
+```bash
+python3 /tmp/cdp-helper.py key a "ctrl"        # Ctrl+A (select all)
+python3 /tmp/cdp-helper.py key c "ctrl"        # Ctrl+C (copy)
+python3 /tmp/cdp-helper.py key v "ctrl"        # Ctrl+V (paste)
+python3 /tmp/cdp-helper.py key z "ctrl"        # Ctrl+Z (undo)
+python3 /tmp/cdp-helper.py key Enter "shift"   # Shift+Enter (newline in chat apps)
+python3 /tmp/cdp-helper.py key a "ctrl,shift"  # Ctrl+Shift+A
+```
+
+**Type text into rich text editors** (contenteditable, ProseMirror, Slate, TinyMCE, Quill):
+```bash
+# First focus the editor element via JS click or CDP click
+# Then type using insertText (works with ALL rich text editors)
+python3 /tmp/cdp-helper.py type "Hello, this is typed text with full rich editor support."
+```
+
+> `Input.insertText` works where `el.value = "..."` does not — it goes through the browser's native input pipeline, triggering all framework event handlers.
+
+**Common patterns:**
+```bash
+# Fill a form field and press Enter to submit
+python3 /tmp/cdp-helper.py type "search query"
+python3 /tmp/cdp-helper.py key Enter
+
+# Clear a field and retype
+python3 /tmp/cdp-helper.py key a "ctrl"
+python3 /tmp/cdp-helper.py key Backspace
+python3 /tmp/cdp-helper.py type "new value"
+
+# Tab through form fields
+python3 /tmp/cdp-helper.py type "First Name"
+python3 /tmp/cdp-helper.py key Tab
+python3 /tmp/cdp-helper.py type "Last Name"
+python3 /tmp/cdp-helper.py key Tab
+python3 /tmp/cdp-helper.py type "email@example.com"
+python3 /tmp/cdp-helper.py key Enter
+```
+
+## P0: File Upload
+
+Upload files to `<input type="file">` elements without triggering the OS file dialog. Works even for hidden file inputs.
+
+```bash
+# Basic upload — selector must target an <input type="file"> element
+python3 /tmp/cdp-helper.py upload "input[type=file]" /path/to/file.png
+
+# Upload multiple files
+python3 /tmp/cdp-helper.py upload "#attachment-input" /tmp/doc.pdf /tmp/image.jpg
+
+# Upload by name attribute
+python3 /tmp/cdp-helper.py upload "input[name=avatar]" /Users/me/photo.jpg
+```
+
+**For hidden file inputs** (common in drag-and-drop upload UIs):
+```bash
+# Step 1: Find the hidden input
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "
+  var inputs = document.querySelectorAll(\"input[type=file]\");
+  JSON.stringify(Array.from(inputs).map(function(el,i){
+    return {index:i, name:el.name, accept:el.accept, multiple:el.multiple, id:el.id, hidden:!el.offsetParent};
+  }));
+"'
+
+# Step 2: Upload using the discovered selector
+python3 /tmp/cdp-helper.py upload "input[type=file]" /path/to/file.png
+```
+
+**Post-upload verification** — confirm the file was accepted:
+```bash
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "
+  var input = document.querySelector(\"input[type=file]\");
+  input ? JSON.stringify({files: input.files.length, name: input.files[0] ? input.files[0].name : \"none\"}) : \"no file input found\";
+"'
+```
+
+## P0: React/Rich Text Editor Compatible Fill
+
+Standard `el.value = "text"` does NOT work with React, Vue, or rich text editors because these frameworks maintain their own internal state. Use these patterns instead.
+
+### Pattern A: Via CDP `type` command (recommended — works with ALL editors)
+
+```bash
+# Step 1: Focus the input (via JS click or CDP click)
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.querySelector(\"#my-input\").focus(); \"focused\";"'
+
+# Step 2: Select existing content (if replacing)
+python3 /tmp/cdp-helper.py key a "ctrl"
+
+# Step 3: Type new value
+python3 /tmp/cdp-helper.py type "New value that React/Vue will properly detect"
+```
+
+### Pattern B: Via JavaScript with React-compatible events (no CDP required)
+
+For React controlled components (`<input value={state}>` pattern):
+
+```bash
+osascript <<'APPLESCRIPT'
+tell application "Google Chrome"
+    execute active tab of front window javascript "
+(function(selector, value) {
+  var el = document.querySelector(selector);
+  if (!el) return 'Element not found';
+  var proto = Object.getPrototypeOf(el);
+  var setter = Object.getOwnPropertyDescriptor(proto, 'value') ||
+               Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value') ||
+               Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+  if (setter && setter.set) {
+    setter.set.call(el, value);
+  } else {
+    el.value = value;
+  }
+  el.dispatchEvent(new Event('input', {bubbles: true}));
+  el.dispatchEvent(new Event('change', {bubbles: true}));
+  return 'filled: ' + el.value;
+})('INPUT_SELECTOR', 'YOUR_VALUE')
+    "
+end tell
+APPLESCRIPT
+```
+
+Replace `INPUT_SELECTOR` and `YOUR_VALUE` with your targets.
+
+### Pattern C: For contenteditable / rich text editors (no CDP required)
+
+For editors like Notion's block editor, Slack's message composer, Gmail's compose box:
+
+```bash
+osascript <<'APPLESCRIPT'
+tell application "Google Chrome"
+    execute active tab of front window javascript "
+(function(selector, text) {
+  var el = document.querySelector(selector);
+  if (!el) return 'Element not found';
+  el.focus();
+  el.innerHTML = '';
+  document.execCommand('insertText', false, text);
+  return 'inserted: ' + text.substring(0, 50);
+})('[contenteditable=true]', 'Your text here')
+    "
+end tell
+APPLESCRIPT
+```
+
+> `document.execCommand('insertText')` is deprecated but still works in all browsers and is the most reliable way to insert text into contenteditable elements with proper undo support.
+
+## P1: Select / Dropdown
+
+### Standard `<select>` element:
+
+```bash
+python3 /tmp/cdp-helper.py select "#country-select" "US"
+python3 /tmp/cdp-helper.py select "select[name=currency]" "EUR"
+```
+
+### Custom dropdown (div-based, React Select, MUI Autocomplete):
+
+These are NOT real `<select>` elements — they use divs/lists. Handle them with click sequences:
+
+```bash
+# Step 1: Click the dropdown trigger to open it
+python3 /tmp/cdp-helper.py click <trigger_x> <trigger_y>
+
+# Step 2: Wait for the dropdown list to appear
+python3 /tmp/cdp-helper.py wait "[role=listbox]" 3000
+
+# Step 3: Find and click the target option
+OPTION_COORDS=$(osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "
+  var opts = document.querySelectorAll(\"[role=option], li.option, .dropdown-item\");
+  for (var i = 0; i < opts.length; i++) {
+    if (opts[i].textContent.trim() === \"Target Value\") {
+      var r = opts[i].getBoundingClientRect();
+      JSON.stringify({x: Math.round(r.left+r.width/2), y: Math.round(r.top+r.height/2)});
+      break;
+    }
+  }
+"')
+# Parse and click
+python3 /tmp/cdp-helper.py click <option_x> <option_y>
+```
+
+## P1: Hover Trigger
+
+Some UI elements only appear on hover (context menus, action buttons, tooltips):
+
+```bash
+# Hover over an element to trigger its hover state
+python3 /tmp/cdp-helper.py hover <x> <y>
+
+# Wait for the hover-triggered element to appear
+python3 /tmp/cdp-helper.py wait ".hover-menu" 2000
+
+# Then click the revealed element
+python3 /tmp/cdp-helper.py click <menu_item_x> <menu_item_y>
+```
+
+## P1: Navigation Wait After Submit
+
+After form submission or navigation, wait for the target page to load:
+
+```bash
+# Submit a form
+python3 /tmp/cdp-helper.py key Enter
+
+# Wait for navigation to complete (check for an element on the target page)
+python3 /tmp/cdp-helper.py wait ".success-message" 10000
+
+# Or wait for a specific URL pattern
+python3 /tmp/cdp-helper.py evaluate "new Promise(r => { var i = setInterval(() => { if (location.href.includes('/dashboard')) { clearInterval(i); r('navigated'); } }, 200); setTimeout(() => { clearInterval(i); r('timeout'); }, 10000); })"
+```
+
+## P1: Operation Confirmation via Screenshot
+
+After performing a write operation, verify it succeeded by taking a screenshot:
+
+```bash
+# Before the action
+python3 /tmp/cdp-helper.py screenshot /tmp/before.png
+
+# Perform the action
+python3 /tmp/cdp-helper.py click <x> <y>
+sleep 1
+
+# After the action
+python3 /tmp/cdp-helper.py screenshot /tmp/after.png
+
+# Compare (the agent can visually inspect both screenshots)
+```
+
+## P2: iframe Penetration
+
+Some enterprise apps (SAP, Salesforce, legacy portals) use iframes extensively. To interact with elements inside an iframe:
+
+```bash
+# Step 1: Find the iframe and get its content
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "
+  var frames = document.querySelectorAll(\"iframe\");
+  JSON.stringify(Array.from(frames).map(function(f,i){
+    return {index:i, src:f.src, id:f.id, name:f.name, sameDomain:false};
+  }));
+"'
+
+# Step 2: For same-origin iframes, access content directly
+osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "
+  var frame = document.querySelector(\"iframe#YOUR_IFRAME_ID\");
+  if (frame && frame.contentDocument) {
+    frame.contentDocument.querySelector(\"button.submit\").click();
+    \"clicked inside iframe\";
+  } else {
+    \"cross-origin or not accessible\";
+  }
+"'
+
+# Step 3: For cross-origin iframes, use CDP to target the iframe's execution context
+python3 /tmp/cdp-helper.py raw "Page.getFrameTree" '{}'
+# Then use the frameId to evaluate JS in that context
+python3 /tmp/cdp-helper.py raw "Page.createIsolatedWorld" '{"frameId": "FRAME_ID_FROM_ABOVE"}'
+```
+
+> Cross-origin iframe access is limited. If the iframe is on a different domain and doesn't allow access via postMessage, inform the user that this content cannot be automated.
+
+## P2: High-Risk Operation Confirmation
+
+For write operations on sensitive pages (e.g., submitting forms, creating records, posting content), the agent should confirm with the user before executing:
+
+```
+I'm about to:
+- Click the "Submit Application" button on example.com/apply
+- This will submit the form with the data I filled in above
+
+Should I proceed? (yes/no)
+```
+
+**Situations that require confirmation:**
+- Form submissions on unfamiliar pages
+- Actions with the words: submit, send, post, publish, create, delete, remove
+- Any action that creates, modifies, or deletes data
+- File uploads to external services
+- Actions on pages not previously visited in this session
+
+This extends the existing Safety Check — while the blacklist blocks dangerous domains entirely, this confirmation layer handles risky actions on allowed domains.
+
+---
+
+# Common Write Workflow
+
+For authenticated write operations (both platforms):
+
+1. **Detect platform** and **run preflight** (same as read workflow)
+2. **Ask the user** to open the target page and log in
+3. **Confirm the page** is loaded and verify URL
+4. **Run safety check** on the page
+5. **Read page structure**: list interactive elements to understand the form/interface
+6. **Choose operation mode**:
+   - Basic fill/click works → use AppleScript/agent-browser
+   - Rich text editor, file upload, or `isTrusted` check → enable CDP Enhanced Mode
+7. **Execute write operations** one at a time:
+   - Fill each field → verify the value stuck
+   - Upload files → verify file count/name
+   - Select dropdowns → verify selected option
+8. **Take confirmation screenshot** before final submit
+9. **Confirm with user** for irreversible actions (submit, post, delete)
+10. **Submit** and verify success (wait for success message or URL change)
+
+---
+
 ## Best Practices
 
 1. **Smart wait after navigation**: Prefer using the `Wait for Element` injectable script to wait for a specific target element to appear, rather than a blind `sleep 2`. Only fall back to `sleep 2` when you cannot determine a specific element or condition to wait for.
@@ -1039,6 +1540,20 @@ This workflow applies to both platforms:
 8. **Avoid redundant reads**: If your last action was a pure read (did not change page state), do not re-read the same content. Only re-read after click, navigation, form submission, or scroll that loads new content. If you already know the exact selector or element index, operate directly without listing all elements first. Never execute the same read command twice in a row.
 
 9. **Run safety check on unfamiliar pages**: Before interacting with a page you haven't verified, inject the `Safety Check (Pre-action)` script to confirm the URL is not on the sensitive site blacklist.
+
+### Write Operation Best Practices
+
+10. **Verify each field after filling**: After entering a value, read it back to confirm it stuck. React/Vue components may silently reject values set via `el.value`.
+
+11. **Escalate to CDP progressively**: Try basic AppleScript/agent-browser first. Only activate CDP Enhanced Mode when basic mode fails (untrusted event, value doesn't stick, file upload needed).
+
+12. **Take screenshots before irreversible actions**: Before clicking Submit/Send/Delete, capture a screenshot so both you and the user can verify the form data is correct.
+
+13. **One field at a time, verify after each**: Fill field → verify value → move to next. Never fill an entire form then verify at the end — if a field fails silently, you won't know which one.
+
+14. **Wait after submit**: After submitting a form, always wait for a success indicator (URL change, success message, toast notification) before reporting completion.
+
+15. **For CDP mode**: Coordinates can change after page reflow. If you scrolled, loaded new content, or opened a dropdown since getting coordinates, re-query the element position before clicking.
 
 ## Recovery Strategy
 
@@ -1098,3 +1613,6 @@ Before any interaction on an unfamiliar page, use the `Safety Check (Pre-action)
 - **Security**: Commands execute JavaScript in the user's authenticated session. Never run untrusted scripts.
 - **macOS-specific**: AppleScript itself has no screenshot API, but `screencapture -l <windowID>` can capture the Chrome window (see `Capture Page Screenshot` in the macOS Advanced section). Chrome must be in foreground.
 - **Windows-specific**: Chrome must be restarted with debugging flag. Requires agent-browser + Node.js.
+- **CDP Enhanced Mode**: Requires Chrome started with `--remote-debugging-port=9222`. The CDP helper script requires Python 3.6+ (included on macOS). CDP coordinates are viewport-relative — re-query positions after scroll or layout changes.
+- **File upload via CDP**: Only works with `<input type="file">` elements. Drag-and-drop upload zones without a file input cannot be automated via `DOM.setFileInputFiles` — use `DataTransfer` API via JS eval as a fallback.
+- **Cross-origin iframes**: CDP can target different frames, but many enterprise apps use strict CSP policies that block automation. Inform the user when an iframe cannot be accessed.

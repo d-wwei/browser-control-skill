@@ -2,9 +2,9 @@
 
 [中文说明](./README_CN.md)
 
-Give your AI coding agent direct access to your Chrome browser — including pages behind corporate SSO, MFA, and security gateways.
+Give your AI coding agent direct access to your Chrome browser — including pages behind corporate SSO, MFA, and security gateways. **Read pages, fill forms, upload files, click buttons, compose messages** — anything a human can do in Chrome.
 
-No extensions. No servers. No API keys. Just your real Chrome, controlled through native OS mechanisms.
+No extensions. No API keys. Just your real Chrome, controlled through native OS mechanisms.
 
 Works with **Claude Code**, **Codex**, **Cursor**, **Gemini CLI**, **Windsurf**, and any agent that can execute shell commands.
 
@@ -40,7 +40,7 @@ There are many browser automation tools for AI agents. Here's how this one is po
 
 This skill is intentionally minimal:
 
-1. **Pure documentation, zero infrastructure** — The entire skill is a set of instructions that teach agents how to use `osascript` (macOS) or `agent-browser` (Windows). No extension, no server process, no runtime dependency.
+1. **Lightweight, progressive architecture** — Basic operations use pure `osascript` (macOS) or `agent-browser` (Windows) with zero infrastructure. Advanced write operations optionally upgrade to CDP Enhanced Mode via a self-contained Python 3 helper (stdlib only, no pip installs).
 
 2. **Real session first** — Designed around inheriting the user's existing Chrome login, not creating fresh automated sessions.
 
@@ -52,14 +52,30 @@ This skill is intentionally minimal:
 
 6. **Multi-agent packaging** — One skill, adapted for 5+ agent formats. Same behavior whether you use Claude Code, Codex, Cursor, Gemini CLI, or Windsurf.
 
-## How It Works
+## Architecture
 
-| Platform | Mechanism | Dependencies |
-|---|---|---|
-| **macOS** | AppleScript communicates directly with Chrome | None (native macOS) |
-| **Windows** | Chrome DevTools Protocol via agent-browser | Node.js + agent-browser |
+```
+┌──────────────────────────────────────────────────────────┐
+│                     Chrome Control Skill                 │
+├───────────────────────────┬──────────────────────────────┤
+│     Basic Mode (default)  │   CDP Enhanced (on-demand)   │
+├───────────────────────────┼──────────────────────────────┤
+│ macOS: AppleScript (zero  │ Trusted clicks (isTrusted)   │
+│   deps, reads + simple    │ Keyboard input (Enter/Tab)   │
+│   clicks & fills)         │ File upload (no OS dialog)   │
+│                           │ Rich text editors (Notion,   │
+│ Windows: agent-browser    │   Slack, Gmail compose)      │
+│   (CDP, reads + basic     │ Hover-triggered menus        │
+│   interactions)           │ Select/Dropdown automation   │
+│                           │ iframe penetration           │
+├───────────────────────────┼──────────────────────────────┤
+│ Deps: None (macOS) /      │ Deps: Python 3.6+ (macOS    │
+│   Node.js (Windows)       │   ships with it) + Chrome    │
+│                           │   --remote-debugging-port    │
+└───────────────────────────┴──────────────────────────────┘
+```
 
-Both approaches operate on the user's real Chrome instance. The skill auto-detects the platform (`uname -s`) and uses the appropriate method.
+Both modes operate on the user's real Chrome instance. The skill auto-detects the platform (`uname -s`) and uses the appropriate method. CDP Enhanced Mode activates only when basic mode is insufficient.
 
 ## Setup
 
@@ -118,6 +134,10 @@ Once installed, talk to the agent naturally. Use phrases like "in my Chrome" to 
 - **Click**: "Click the Settings tab"
 - **Extract data**: "Extract all links on this page"
 - **Fill forms**: "Fill in the search box with quarterly report"
+- **Upload files**: "Upload this screenshot to the Jira ticket"
+- **Rich text editing**: "Compose a reply in Gmail with this text"
+- **Keyboard actions**: "Press Enter to submit the form"
+- **Complex workflows**: "Create a new Notion page with this content"
 
 The agent automatically:
 1. Detects the platform
@@ -134,17 +154,15 @@ The agent automatically:
 
 ## Roadmap
 
-This skill is Phase 1 of a larger browser tools evolution:
-
 ```
-Phase 1 (current)          Phase 1.5                Phase 2                  Phase 3+
-Pure documentation skill → Chrome DevTools MCP   → WebMCP integration    → Site experience
-AppleScript + CDP           integration               (when Chrome Stable      caching &
-Zero dependencies           Deep browser inspection   supports it, est.       memory
-                                                      2026 H2+)
+Phase 1          Phase 1.5 (current)        Phase 2                  Phase 3+
+Basic read/click → CDP Enhanced Mode      → WebMCP integration    → Site experience
+AppleScript +      Trusted events, file      (when Chrome Stable      caching &
+agent-browser      upload, keyboard,         supports it, est.       memory
+                   rich text, hover          2026 H2+)
 ```
 
-The design ensures each phase builds on the previous one rather than replacing it. Even when WebMCP arrives, the current AppleScript/CDP approach remains as a reliable fallback.
+The design ensures each phase builds on the previous one rather than replacing it. Basic mode remains as the fast default; CDP Enhanced activates only when needed.
 
 ## Security
 
