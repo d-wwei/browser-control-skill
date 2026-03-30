@@ -3,3 +3,5 @@
 # Only ignore runtime-generated site patterns, not starter patterns (which are committed)
 skills/browser-control/references/site-patterns/_runtime-*.md
 node_modules/
+.update-kit/
+.pytest_cache/

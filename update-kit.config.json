@@ -1,0 +1,50 @@
+{
+  "$schemaVersion": 1,
+  "appName": "browser-control-skill",
+  "currentVersion": "3.0.0",
+  "repo": "d-wwei/browser-control-skill",
+  "releaseChannel": "releases",
+  "currentVersionSource": {
+    "type": "package.json",
+    "path": "./package.json"
+  },
+  "installStrategy": {
+    "type": "custom_command",
+    "command": ["git", "pull", "--rebase", "origin", "main"],
+    "timeoutMs": 60000
+  },
+  "installCommand": ["git", "pull", "--rebase", "origin", "main"],
+  "rollbackCommand": ["git", "checkout", "{targetVersion}"],
+  "statePath": "./.update-kit/state.json",
+  "auditLogPath": "./.update-kit/audit.log",
+  "lockPath": "./.update-kit/update.lock",
+  "autoUpdatePolicy": "manual",
+  "allowedUpdateLevels": ["patch", "minor", "major"],
+  "preflightHooks": [
+    {
+      "type": "builtin",
+      "builtin": "command_exists",
+      "value": "git",
+      "description": "Verify git is available"
+    }
+  ],
+  "verificationHooks": [
+    {
+      "type": "builtin",
+      "builtin": "file_exists",
+      "value": "./skills/browser-control/SKILL.md",
+      "description": "Core SKILL.md must exist after update",
+      "phase": "after_switch"
+    }
+  ],
+  "updateInstructions": {
+    "summary": "Pull latest version from GitHub.",
+    "docsUrl": "https://github.com/d-wwei/browser-control-skill/releases",
+    "installHint": "npx update-kit apply"
+  },
+  "updateCheckEnabled": true,
+  "cache": {
+    "upToDateTtlMs": 3600000,
+    "upgradeAvailableTtlMs": 43200000
+  }
+}

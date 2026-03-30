@@ -1,18 +1,28 @@
 {
-  "name": "remixed-skill",
-  "version": "1.0.0",
+  "name": "browser-control-skill",
+  "version": "3.0.0",
   "description": "Full browser control skill for AI coding agents. Multi-channel web access with real Chrome session inheritance.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/d-wwei/browser-control-skill.git"
+  },
   "main": "index.js",
   "directories": {
     "test": "tests"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "update:check": "update-kit check",
+    "update:apply": "update-kit apply",
+    "update:rollback": "update-kit rollback"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": ["ai", "browser", "chrome", "cdp", "skill", "agent"],
+  "author": "d-wwei",
+  "license": "MIT",
   "type": "commonjs",
+  "dependencies": {
+    "update-kit": "^0.1.12"
+  },
   "devDependencies": {
     "jsdom": "^29.0.1"
   }

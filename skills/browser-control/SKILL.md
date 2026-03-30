@@ -10,6 +10,19 @@ metadata:
     - {name: "web-access", author: "一泽Eze", version: "2.4.1", url: "https://github.com/eze-is/web-access"}
 ---
 
+<!-- Update check preamble — runs once per session, <5ms from cache -->
+```bash
+if command -v npx &>/dev/null; then
+  _UK_DIR="${SKILL_DIR:-$(cd "$(dirname "$0")" && pwd)}"
+  _UK_JSON=$(npx update-kit check --json --config "$_UK_DIR/../../update-kit.config.json" 2>/dev/null || echo '{}')
+  _UK_KIND=$(echo "$_UK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('kind',''))" 2>/dev/null || echo "")
+  if [ "$_UK_KIND" = "upgrade_available" ]; then
+    _UK_VER=$(echo "$_UK_JSON" | python3 -c "import sys,json; print(json.load(sys.stdin).get('latest',''))" 2>/dev/null)
+    echo "Browser Control Skill update available: $_UK_VER — run: cd ~/.claude/skills/browser-control && npx update-kit apply"
+  fi
+fi
+```
+
 # Browser Control
 
 Control the user's real Chrome browser with full login session inheritance. Multi-channel web access — from lightweight search to full CDP browser automation — with three-layer safety, sub-agent parallel dispatch, and site experience memory.
