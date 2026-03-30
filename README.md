@@ -245,6 +245,20 @@ tests/                                # 200 个自动化测试
 
 ---
 
+## 自动更新
+
+内置 [update-kit](https://github.com/d-wwei/update-kit) 自动更新检测。Skill 每次加载时静默检查（<5ms，从缓存读取），有新版本时提示一行：
+
+```
+Browser Control Skill update available: 3.1.0 — run: cd ~/.claude/skills/browser-control && npx update-kit apply
+```
+
+- 默认 `manual` 策略——只提示，不自动升级，由你决定
+- 升级方式：`cd ~/.claude/skills/browser-control && npx update-kit apply`
+- 回滚：`npx update-kit rollback`
+
+---
+
 ## License
 
 MIT

@@ -245,6 +245,20 @@ Background mode needs Node.js. Foreground mode on macOS has zero additional depe
 
 ---
 
+## Auto-Update
+
+Built-in [update-kit](https://github.com/d-wwei/update-kit) for automatic version checking. The skill silently checks on each load (<5ms, from cache) and shows a one-liner when a new version is available:
+
+```
+Browser Control Skill update available: 3.1.0 — run: cd ~/.claude/skills/browser-control && npx update-kit apply
+```
+
+- Default `manual` policy — notifies only, never auto-upgrades
+- Upgrade: `cd ~/.claude/skills/browser-control && npx update-kit apply`
+- Rollback: `npx update-kit rollback`
+
+---
+
 ## License
 
 MIT
