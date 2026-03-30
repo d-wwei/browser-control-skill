@@ -193,6 +193,20 @@ class CDPConnection:
 
 
 # =============================================================================
+# Helpers
+# =============================================================================
+
+def escape_css_selector(selector):
+    """Escape a CSS selector for safe embedding in a JavaScript double-quoted string."""
+    return selector.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r')
+
+
+def escape_js_string(value):
+    """Escape an arbitrary value for safe embedding in a JavaScript double-quoted string."""
+    return value.replace('\\', '\\\\').replace('"', '\\"').replace('\n', '\\n').replace('\r', '\\r')
+
+
+# =============================================================================
 # High-Level Commands
 # =============================================================================
 
@@ -292,9 +306,10 @@ def cmd_key(cdp, key_name, modifiers_str=""):
 
 def cmd_upload(cdp, selector, files):
     """Upload files to a file input element identified by CSS selector."""
+    safe_sel = escape_css_selector(selector)
     # Resolve the DOM node
     eval_result = cdp.send("Runtime.evaluate", {
-        "expression": f'document.querySelector("{selector}")',
+        "expression": f'document.querySelector("{safe_sel}")',
         "returnByValue": False,
     })
     obj_id = eval_result.get("result", {}).get("objectId")
@@ -317,7 +332,7 @@ def cmd_upload(cdp, selector, files):
     cdp.send("Runtime.evaluate", {
         "expression": f'''
             (function() {{
-                var el = document.querySelector("{selector}");
+                var el = document.querySelector("{safe_sel}");
                 if (el) {{
                     el.dispatchEvent(new Event("change", {{bubbles: true}}));
                     el.dispatchEvent(new Event("input", {{bubbles: true}}));
@@ -332,14 +347,16 @@ def cmd_upload(cdp, selector, files):
 
 def cmd_select(cdp, selector, value):
     """Set a <select> element's value and fire change events."""
+    safe_sel = escape_css_selector(selector)
+    safe_val = escape_js_string(value)
     result = cdp.send("Runtime.evaluate", {
         "expression": f'''
             (function() {{
-                var el = document.querySelector("{selector}");
-                if (!el) return JSON.stringify({{error: "Element not found: {selector}"}});
+                var el = document.querySelector("{safe_sel}");
+                if (!el) return JSON.stringify({{error: "Element not found: {safe_sel}"}});
                 if (el.tagName.toLowerCase() !== "select")
                     return JSON.stringify({{error: "Element is not a <select>: " + el.tagName}});
-                el.value = "{value}";
+                el.value = "{safe_val}";
                 el.dispatchEvent(new Event("change", {{bubbles: true}}));
                 el.dispatchEvent(new Event("input", {{bubbles: true}}));
                 var opt = el.options[el.selectedIndex];
@@ -387,6 +404,7 @@ def cmd_screenshot(cdp, filepath=None):
 
 def cmd_wait(cdp, selector, timeout_ms=5000):
     """Wait for element to appear in DOM (polls via evaluate)."""
+    safe_sel = escape_css_selector(selector)
     timeout_ms = int(timeout_ms)
     start = time.time()
     deadline = start + timeout_ms / 1000.0
@@ -394,7 +412,7 @@ def cmd_wait(cdp, selector, timeout_ms=5000):
         result = cdp.send("Runtime.evaluate", {
             "expression": f'''
                 (function() {{
-                    var el = document.querySelector("{selector}");
+                    var el = document.querySelector("{safe_sel}");
                     if (!el) return "not_found";
                     var r = el.getBoundingClientRect();
                     if (r.width === 0 && r.height === 0) return "hidden";

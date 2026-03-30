@@ -1,0 +1,19 @@
+{
+  "name": "remixed-skill",
+  "version": "1.0.0",
+  "description": "Full browser control skill for AI coding agents. Multi-channel web access with real Chrome session inheritance.",
+  "main": "index.js",
+  "directories": {
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "jsdom": "^29.0.1"
+  }
+}

@@ -1,154 +1,131 @@
-# Chrome Control — Browser Automation via User's Chrome
+# Browser Control Skill for Cursor
 
-You can control the user's local Chrome browser to access any page they are logged into, including pages behind corporate authentication (SSO, MFA). This works by operating on the user's real Chrome instance, not a headless browser.
+Control the user's real Chrome browser with full login session inheritance.
+Multi-channel web access with three-layer safety.
+
+
+## Mode Routing
+
+/browse <instruction>       -> auto-detect foreground vs background
+/browse here <instruction>  -> foreground (AppleScript, user's current page)
+/browse bg <instruction>    -> background (CDP Proxy, no user disruption)
+
+Foreground = operate on what user is looking at.
+Background = agent creates own tabs, user unaffected.
+On macOS, default is foreground. On Linux/Windows, always background.
+If foreground fails (isTrusted, upload, keyboard), auto-escalate to CDP.
+
+
+## Multi-Channel Tool Selection
+
+Scenario                                      | Tool
+----------------------------------------------|---------------------------
+Search snippets, discover sources             | WebSearch
+Known URL, extract info                       | WebFetch
+Known URL, raw HTML                           | curl
+Convert page to Markdown (save tokens)        | Jina (r.jina.ai/example.com)
+Dynamic content, anti-scraping, login-required | CDP Browser
+
+Escalate from lightest to heaviest. CDP is the fallback when lighter tools fail.
+
 
 ## Platform Detection
 
-Run `uname -s` first:
-- `Darwin` → macOS → use AppleScript commands
-- `MINGW*` / `CYGWIN*` / `MSYS*` → Windows → use CDP commands
+    uname -s  # Darwin = macOS, Linux = Linux, MINGW*/CYGWIN* = Windows
 
-## Reasoning (before each action)
 
-1. EVALUATE — did my last action succeed?
-2. OBSERVE — read current page state
-3. PLAN — what single action advances the goal?
-4. ACT — execute one action, then re-evaluate
+## Preflight
 
-## Element Targeting
+macOS:
+    osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.title"'
 
-**macOS**: element index (inject indexing script, then `window.__interactiveElements[i]` — most reliable) → text match → CSS selector → coordinates (last resort)
-**Windows**: @ref from `snapshot -i` (preferred) → CSS selector → eval JS
+All platforms CDP:
+    bash "${SKILL_DIR}/scripts/check-deps.sh"
 
-## macOS Commands (AppleScript)
 
-Prerequisite: user must enable Chrome → View → Developer → Allow JavaScript from Apple Events
+## Core Commands
 
-Preflight:
+### macOS AppleScript
 
-```bash
-osascript -e 'tell application "Google Chrome" to get name'
-osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.title"'
-```
+Read page text:
+    osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.body.innerText.substring(0, 15000)"'
 
-```bash
-# Get current URL
-osascript -e 'tell application "Google Chrome" to return URL of active tab of front window'
+Navigate (always new tab):
+    osascript -e 'tell application "Google Chrome" to tell front window to make new tab with properties {URL:"https://example.com"}'
 
-# Get page text (paginate for long pages)
-osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.body.innerText.substring(0, 15000)"'
+Click by selector:
+    osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.querySelector(\"#btn\").click()"'
 
-# Get page title
-osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.title"'
+Fill form field:
+    osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "var el=document.querySelector(\"input[name=q]\"); el.value=\"text\"; el.dispatchEvent(new Event(\"input\",{bubbles:true})); \"done\";"'
 
-# Get page HTML (truncated)
-osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.documentElement.outerHTML.substring(0, 10000)"'
+### CDP Proxy (All Platforms)
 
-# Navigate to URL
-osascript -e 'tell application "Google Chrome" to tell front window to make new tab with properties {URL:"URL_HERE"}'
+New tab:
+    curl -s "http://localhost:3456/new?url=https://example.com"
 
-# Click element by CSS selector
-osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "document.querySelector(\"SELECTOR\").click()"'
+Eval JS:
+    curl -s -X POST "http://localhost:3456/eval?target=ID" -d 'document.title'
 
-# Click element by visible text
-osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "
-    var items = document.querySelectorAll(\"li, a, button, span, div\");
-    for (var i = 0; i < items.length; i++) {
-        if (items[i].textContent.trim() === \"TARGET_TEXT\" && items[i].children.length === 0) { items[i].click(); break; }
-    }
-    \"done\";"'
+Click:
+    curl -s -X POST "http://localhost:3456/click?target=ID" -d 'button.submit'
 
-# Fill form field
-osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "
-    var input = document.querySelector(\"SELECTOR\");
-    input.value = \"VALUE\";
-    input.dispatchEvent(new Event(\"input\", {bubbles: true}));
-    \"done\";"'
+Scroll:
+    curl -s "http://localhost:3456/scroll?target=ID&direction=bottom"
 
-# Scroll down one viewport
-osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "window.scrollBy(0, window.innerHeight); \"done\";"'
+Screenshot:
+    curl -s "http://localhost:3456/screenshot?target=ID&file=/tmp/shot.png"
 
-# Execute arbitrary JS
-osascript -e 'tell application "Google Chrome" to execute active tab of front window javascript "JS_CODE"'
+Close tab:
+    curl -s "http://localhost:3456/close?target=ID"
 
-# List all tabs
-osascript <<'EOF'
-tell application "Google Chrome"
-    set allTabs to {}
-    set i to 1
-    repeat with w in windows
-        set j to 1
-        repeat with t in tabs of w
-            set end of allTabs to ("w" & i & "-t" & j & ": " & URL of t)
-            set j to j + 1
-        end repeat
-        set i to i + 1
-    end repeat
-    set AppleScript's text item delimiters to linefeed
-    return allTabs as text
-end tell
-EOF
-```
+### CDP Helper (Advanced Write Operations)
 
-> The tab list spans all Chrome windows, but `set active tab index of front window` only switches tabs in the front window. For cross-window targeting, use JXA (`osascript -l JavaScript`).
+Type into focused element:
+    python3 "${SKILL_DIR}/scripts/cdp-helper.py" type "text"
 
-## Windows Commands (Chrome CDP + agent-browser)
+Press key:
+    python3 "${SKILL_DIR}/scripts/cdp-helper.py" key Enter
 
-Prerequisites: `npm install -g agent-browser && agent-browser install`
-User must start Chrome with: `chrome.exe --remote-debugging-port=9222` (close Chrome fully first)
+Upload file:
+    python3 "${SKILL_DIR}/scripts/cdp-helper.py" upload "input[type=file]" /path/to/file
 
-Preflight:
+Select dropdown:
+    python3 "${SKILL_DIR}/scripts/cdp-helper.py" select "#dropdown" "value"
 
-```powershell
-Get-Command agent-browser
-Invoke-RestMethod -Uri "http://127.0.0.1:9222/json/version"
-```
+Trusted mouse click:
+    python3 "${SKILL_DIR}/scripts/cdp-helper.py" click <x> <y>
 
-```bash
-agent-browser --cdp 9222 get text           # Page text
-agent-browser --cdp 9222 get url            # Current URL
-agent-browser --cdp 9222 get title          # Page title
-agent-browser --cdp 9222 open "URL"         # Navigate
-agent-browser --cdp 9222 snapshot -i        # Interactive elements with @refs
-agent-browser --cdp 9222 click @e3          # Click by ref
-agent-browser --cdp 9222 click "#selector"  # Click by CSS
-agent-browser --cdp 9222 fill @e1 "text"    # Fill form
-agent-browser --cdp 9222 screenshot out.png # Screenshot
-agent-browser --cdp 9222 eval "JS_CODE"     # Execute JS
-agent-browser --cdp 9222 tab list           # List tabs
-```
+Hover trigger:
+    python3 "${SKILL_DIR}/scripts/cdp-helper.py" hover <x> <y>
 
-## Security (Mandatory)
 
-These rules are **enforced** — refuse any operation that violates them.
+## Safety Rules (Mandatory)
 
-**Sensitive site blacklist** — only read operations allowed (no click/fill/execute):
-- Banking: chase, wellsfargo, bankofamerica, citi, capitalone, usbank, pnc, tdbank, hsbc, any `.bank` domain
-- Payments: paypal, venmo, stripe, squareup, wise, revolut, robinhood, coinbase, binance
-- Auth: `accounts.google.com`, `login.microsoftonline.com`, `login.live.com`, `icloud.com/account`, `*.okta.com`, `*.auth0.com`, `*.onelogin.com`
-- Cloud consoles: `console.aws.amazon.com`, `console.cloud.google.com`, `portal.azure.com`
-- Chrome internal: `chrome://`, `chrome-extension://`, `about:`
+Domain blacklist (read-only on these):
+  - Banking: chase, wellsfargo, etc.
+  - Payments: paypal, stripe, etc.
+  - Auth: accounts.google.com, okta, etc.
+  - Cloud consoles: AWS, GCP, Azure
+  - chrome:// pages
 
-**Password fields** — never fill or click: `input[type="password"]`, inputs with name containing "password"/"passwd", or `autocomplete="current-password"`/`"new-password"`.
+Element protection:
+  - Never fill password fields.
+  - Never click payment buttons (pay, purchase, buy, checkout).
 
-**Payment buttons** — never click buttons matching: pay, purchase, buy, checkout, place order, submit order, confirm payment, subscribe, upgrade, donate, 付款, 支付, 购买, 下单, 确认订单, 立即购买.
+Operation confirmation:
+  - Confirm with user before submit/send/post/delete on unfamiliar pages.
 
-**Pre-action safety check** — before interacting with an unfamiliar page, verify the current URL against the blacklist above. Inject a JS check via `osascript` (macOS) or `agent-browser --cdp 9222 eval` (Windows) that tests `new URL(location.href).hostname` against the sensitive domain patterns and returns `{safe: true/false}`. If unsafe, switch to read-only mode.
 
-## Rules
+## Behavior Rules
 
-- Always detect platform with `uname -s` before running browser commands.
-- Always run the platform preflight check before any browser action.
-- If preflight fails, stop and tell the user how to fix the prerequisite.
-- Ask the user to log in before attempting to read authenticated pages.
-- **Smart wait after navigation**: prefer waiting for a specific target element to appear (e.g. inject a MutationObserver-based check), only fall back to `sleep 2` when you cannot determine a wait condition.
-- **Scroll before clicking** if the target element might be off-screen.
-- For lazy-loaded or infinite-scroll pages, scroll the real page first, wait for new content, then read again.
-- Prefer scrolling the live browser page over alternate fetch methods.
-- **Never navigate in the user's current tab** — always open a new tab (`make new tab with properties {URL:...}`) or a dedicated task window. The user's existing tabs must be preserved.
-- **One action at a time** — observe the result before proceeding to the next action.
-- On Windows, use `snapshot -i` to get @ref labels before interacting with elements.
-- For long pages, paginate with `.substring(0, 15000)` on macOS.
-- If an action fails, re-read the page, try alternative targeting, and do NOT retry the same failed action more than twice.
-- `missing value` from AppleScript means JS returned undefined — return a string explicitly.
-- If `front window` throws `-1719` (hidden Chrome window), use JXA to find a visible window: `osascript -l JavaScript -e 'function run(){var c=Application("Google Chrome");var w=c.windows();for(var i=0;i<w.length;i++){if(w[i].visible())return c.execute(w[i].activeTab(),{javascript:"document.title"});}return"No visible window"}'`
+1. Never navigate in user's existing tabs -- always open new tabs
+2. One action at a time -- execute, observe result, then decide next
+3. Smart wait -- use MutationObserver wait, not blind sleep
+4. Don't re-read after read-only actions -- only re-read after state changes
+5. Safety check before interacting with unfamiliar pages
+6. Close your own tabs when done -- keep user's environment clean
+7. Escalate progressively -- AppleScript -> CDP Proxy -> CDP Helper
+
+
+For full reference including DOM-to-Markdown, element indexer, screenshots, sub-agent dispatch, site experience: see skills/browser-control/SKILL.md

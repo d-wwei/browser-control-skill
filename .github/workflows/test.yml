@@ -1,0 +1,90 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install Python dependencies
+        run: pip install pytest
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Run Python CDP helper tests
+        run: python3 -m pytest tests/test_cdp_helper.py -v
+
+      - name: Run safety tests
+        run: node --test tests/test_safety.mjs
+
+      - name: Run DOM-to-Markdown tests
+        run: node --test tests/test_dom_to_markdown.mjs
+
+      - name: Run shell tests
+        run: bash tests/test_scripts.sh
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install Chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: stable
+
+      - name: Start Chrome headless with remote debugging
+        run: |
+          google-chrome \
+            --headless \
+            --no-sandbox \
+            --disable-gpu \
+            --remote-debugging-port=9222 \
+            --remote-debugging-address=127.0.0.1 &
+          sleep 3
+          # Verify Chrome is listening
+          curl -s http://127.0.0.1:9222/json/version || (echo "Chrome failed to start" && exit 1)
+
+      - name: Start CDP Proxy
+        run: |
+          node skills/browser-control/scripts/cdp-proxy.mjs &
+          sleep 2
+
+      - name: Run integration tests
+        run: bash tests/test_integration.sh

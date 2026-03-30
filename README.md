@@ -1,196 +1,92 @@
-# Chrome Control — Browser Automation for AI Coding Agents
+# Browser Control Skill (Remixed)
 
-[中文说明](./README_CN.md)
+Full browser control skill for AI coding agents. Multi-channel web access with real Chrome session inheritance.
 
-Give your AI coding agent direct access to your Chrome browser — including pages behind corporate SSO, MFA, and security gateways. **Read pages, fill forms, upload files, click buttons, compose messages** — anything a human can do in Chrome.
+> Remixed from [browser-control-skill](https://github.com/d-wwei/browser-control-skill) (d-wwei) and [web-access](https://github.com/eze-is/web-access) (一泽Eze).
 
-No extensions. No API keys. Just your real Chrome, controlled through native OS mechanisms.
+## What It Does
 
-Works with **Claude Code**, **Codex**, **Cursor**, **Gemini CLI**, **Windsurf**, and any agent that can execute shell commands.
+Gives any AI coding agent the ability to control the user's real Chrome browser — including pages behind corporate authentication (SSO, MFA, security gateways). Multi-channel tool selection from lightweight search to full CDP automation.
 
-## Why This Exists
+## Key Capabilities
 
-Every AI coding agent can fetch public web pages. None of them can access the pages you actually need — behind corporate login, VPN, or MFA.
-
-This skill solves that by operating on **your real Chrome instance**, inheriting your full login session. If you can see it in Chrome, the agent can read and interact with it.
-
-## How It's Different
-
-There are many browser automation tools for AI agents. Here's how this one is positioned:
-
-| | Chrome Control | Chrome DevTools MCP | agent-browser / Playwright | WebFetch / Firecrawl | Browserbase |
-|---|---|---|---|---|---|
-| **What it is** | A documentation skill — agents learn browser control through instructions | Official Chrome MCP server; talks to Chrome via CDP | Headless browser automation library | HTTP-based content extraction | Cloud-hosted browser sessions |
-| **Browser** | User's own Chrome | User's Chrome (requires debug flag) | Launches separate Chromium | No browser | Remote Chromium |
-| **Login session** | Fully inherited | Inherited (if Chrome is running) | Fresh session each time | None | Fresh session |
-| **Corporate auth** | Works — it's your browser | Works (same Chrome) | Usually blocked | Blocked | Blocked |
-| **Setup** | macOS: 1 checkbox; Windows: npm install | npm install + Chrome restart with flag | npm + Chromium (~500MB) | API key | API key + account |
-| **Agent support** | Claude Code, Codex, Cursor, Gemini CLI, Windsurf | Claude Code (MCP only) | Framework-dependent | Most agents | Framework-dependent |
-| **Architecture** | Zero-dependency docs | MCP server process | Library / MCP server | API service | Cloud API |
-
-### When to use what
-
-- **Authenticated / internal pages** → **Chrome Control**. The only option that inherits your real login state with near-zero setup.
-- **Deep browser inspection** (network, performance, debugging) → **Chrome DevTools MCP**. More powerful, but requires Chrome restart with `--remote-debugging-port` and only works via MCP protocol.
-- **Automated testing of public sites** → **agent-browser / Playwright**. Better for headless batch operations, screenshots, PDF generation.
-- **Quick scraping of public content** → **WebFetch / Firecrawl**. Lightest — one HTTP call, no browser needed.
-- **Parallel browser sessions at scale** → **Browserbase**. Cloud-hosted, isolated, but no login session inheritance.
-
-## Design Principles
-
-This skill is intentionally minimal:
-
-1. **Lightweight, progressive architecture** — Basic operations use pure `osascript` (macOS) or `agent-browser` (Windows) with zero infrastructure. Advanced write operations optionally upgrade to CDP Enhanced Mode via a self-contained Python 3 helper (stdlib only, no pip installs).
-
-2. **Real session first** — Designed around inheriting the user's existing Chrome login, not creating fresh automated sessions.
-
-3. **Structured reasoning** — Agents follow an EVALUATE → OBSERVE → PLAN → ACT cycle before each action, reducing blind clicks and wasted tool calls.
-
-4. **Safety boundaries** — Built-in blacklists for banking, payment, and auth sites. Password fields and payment buttons are never touched. Pre-action URL verification is mandatory.
-
-5. **Tab preservation** — Agents always open new tabs; the user's existing tabs are never navigated away.
-
-6. **Multi-agent packaging** — One skill, adapted for 5+ agent formats. Same behavior whether you use Claude Code, Codex, Cursor, Gemini CLI, or Windsurf.
+| Capability | Source |
+|-----------|--------|
+| Multi-channel dispatch (WebSearch → WebFetch → Jina → curl → CDP) | web-access |
+| Real Chrome session inheritance (zero credential management) | Both |
+| Three-layer safety system (domain blacklist + element check + operation confirmation) | browser-control-skill |
+| DOM-to-Markdown converter (preserves tables, code blocks, lists) | browser-control-skill |
+| CDP Proxy (HTTP-to-CDP bridge, simple curl calls) | web-access |
+| CDP Helper (Python, zero-dependency, keyboard/upload/select/hover) | browser-control-skill |
+| Sub-agent parallel dispatch (tab-level isolation) | web-access |
+| Site experience memory (per-domain knowledge accumulation) | web-access |
+| EOPA reasoning cycle (Evaluate-Observe-Plan-Act) | browser-control-skill |
+| "Browse like a human" philosophy | web-access |
+| Virtual scrolling & SPA crawler | browser-control-skill |
+| Console & network interception | browser-control-skill |
+| Annotated screenshots | browser-control-skill |
+| Information verification framework | web-access |
+| macOS + Linux + Windows support | Combined |
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────┐
-│                     Chrome Control Skill                 │
-├───────────────────────────┬──────────────────────────────┤
-│     Basic Mode (default)  │   CDP Enhanced (on-demand)   │
-├───────────────────────────┼──────────────────────────────┤
-│ macOS: AppleScript (zero  │ Trusted clicks (isTrusted)   │
-│   deps, reads + simple    │ Keyboard input (Enter/Tab)   │
-│   clicks & fills)         │ File upload (no OS dialog)   │
-│                           │ Rich text editors (Notion,   │
-│ Windows: agent-browser    │   Slack, Gmail compose)      │
-│   (CDP, reads + basic     │ Hover-triggered menus        │
-│   interactions)           │ Select/Dropdown automation   │
-│                           │ iframe penetration           │
-├───────────────────────────┼──────────────────────────────┤
-│ Deps: None (macOS) /      │ Deps: Python 3.6+ (macOS    │
-│   Node.js (Windows)       │   ships with it) + Chrome    │
-│                           │   --remote-debugging-port    │
-└───────────────────────────┴──────────────────────────────┘
+skills/browser-control/
+  SKILL.md                          # Core: unified skill definition
+  scripts/
+    cdp-proxy.mjs                   # HTTP-to-CDP bridge proxy (Node.js 22+)
+    cdp-helper.py                   # Python CDP client (zero-dep, keyboard/upload/hover)
+    check-deps.sh                   # Environment validator + proxy auto-launcher
+    match-site.sh                   # Site experience matcher
+  references/
+    cdp-api.md                      # CDP API documentation
+    site-patterns/                  # Per-domain operational experience (runtime-generated)
+adapters/
+  codex/AGENTS.md                   # OpenAI Codex adapter
+  gemini/GEMINI.md                  # Google Gemini CLI adapter
+  cursor/.cursorrules               # Cursor IDE adapter
+  windsurf/.windsurfrules           # Windsurf IDE adapter
 ```
 
-Both modes operate on the user's real Chrome instance. The skill auto-detects the platform (`uname -s`) and uses the appropriate method. CDP Enhanced Mode activates only when basic mode is insufficient.
+## Quick Start
+
+### Claude Code
+```bash
+# Clone and install
+git clone <this-repo> ~/.claude/skills/browser-control
+# The skill auto-loads when referenced
+```
+
+### Other Agents
+Copy the appropriate adapter file to your project root.
+
+## Platform Support
+
+| Platform | Basic Mode | CDP Mode |
+|----------|-----------|----------|
+| macOS | AppleScript (zero-dep) | CDP Proxy + CDP Helper |
+| Linux | CDP Proxy | CDP Proxy + CDP Helper |
+| Windows | CDP Proxy | CDP Proxy + CDP Helper + optional agent-browser |
 
 ## Setup
 
-### macOS
+1. **Chrome**: Open `chrome://inspect/#remote-debugging`, enable "Allow remote debugging"
+2. **macOS extra**: Chrome → View → Developer → Allow JavaScript from Apple Events
+3. **Node.js 22+**: Required for CDP Proxy
+4. **Python 3.6+**: Required for CDP Helper (optional, only for advanced write operations)
 
-One-time Chrome setting:
+## Comparison
 
-> Chrome menu bar → **View** → **Developer** → **Allow JavaScript from Apple Events**
-
-That's it. No other setup needed.
-
-### Windows
-
-1. Install [Node.js](https://nodejs.org/)
-2. Install agent-browser:
-   ```powershell
-   npm install -g agent-browser
-   agent-browser install
-   ```
-3. Start Chrome with debug port: `chrome.exe --remote-debugging-port=9222`
-
-## Agent Installation
-
-### Claude Code
-
-```bash
-claude install-skill /path/to/browser-control-skill
-```
-
-### Codex (OpenAI)
-
-Copy `adapters/codex/AGENTS.md` into your project root.
-
-### Cursor
-
-Copy `adapters/cursor/.cursorrules` into your project root, or append to your existing `.cursorrules`.
-
-### Gemini CLI
-
-Copy `adapters/gemini/GEMINI.md` into your project root.
-
-### Windsurf
-
-Copy `adapters/windsurf/.windsurfrules` into your project root, or append to your existing `.windsurfrules`.
-
-### Other Agents
-
-Copy `AGENT_INSTRUCTIONS.md` into your project, or paste its contents into the agent's system prompt.
-
-## Usage
-
-Once installed, talk to the agent naturally. Use phrases like "in my Chrome" to signal browser control:
-
-- **Read authenticated pages**: "Read the content of my current Chrome tab"
-- **Navigate**: "Open https://internal.company.com/dashboard in my Chrome"
-- **Click**: "Click the Settings tab"
-- **Extract data**: "Extract all links on this page"
-- **Fill forms**: "Fill in the search box with quarterly report"
-- **Upload files**: "Upload this screenshot to the Jira ticket"
-- **Rich text editing**: "Compose a reply in Gmail with this text"
-- **Keyboard actions**: "Press Enter to submit the form"
-- **Complex workflows**: "Create a new Notion page with this content"
-
-The agent automatically:
-1. Detects the platform
-2. Runs preflight checks
-3. Guides you through setup if anything is missing
-4. Opens new tabs for navigation (never touches your existing tabs)
-5. Follows the EVALUATE → OBSERVE → PLAN → ACT cycle for each action
-
-### Quick Start
-
-1. Open the target page in Chrome and log in normally
-2. Tell the agent what you want to do
-3. The agent controls Chrome and returns results
-
-## Roadmap
-
-```
-Phase 1          Phase 1.5 (current)        Phase 2                  Phase 3+
-Basic read/click → CDP Enhanced Mode      → WebMCP integration    → Site experience
-AppleScript +      Trusted events, file      (when Chrome Stable      caching &
-agent-browser      upload, keyboard,         supports it, est.       memory
-                   rich text, hover          2026 H2+)
-```
-
-The design ensures each phase builds on the previous one rather than replacing it. Basic mode remains as the fast default; CDP Enhanced activates only when needed.
-
-## Security
-
-These rules are enforced — the agent will refuse operations that violate them:
-
-- **Sensitive site blacklist**: Banking, payment, auth, and cloud console sites are read-only (no clicks, fills, or JS execution)
-- **Password fields**: Never filled or clicked
-- **Payment buttons**: Never clicked (pay, purchase, checkout, subscribe, etc.)
-- **Pre-action URL check**: Before interacting with any page, the agent verifies the URL against the blacklist
-
-## Requirements
-
-### macOS
-- Google Chrome
-- "Allow JavaScript from Apple Events" enabled
-
-### Windows
-- Google Chrome + Node.js
-- agent-browser (`npm install -g agent-browser`)
-- Chrome started with `--remote-debugging-port=9222`
-
-## Limitations
-
-- Cannot log in on behalf of the user — you must be authenticated first
-- macOS: Chrome must be open (AppleScript cannot control a hidden browser)
-- Windows: Chrome must be restarted with debugging flag each session
-- Very large pages need paginated reading
-- One action at a time — complex workflows may require multiple turns
+| Feature | This Skill | Chrome DevTools MCP | Playwright | WebFetch |
+|---------|:---------:|:------------------:|:----------:|:--------:|
+| Real login session | Yes | No | No | No |
+| Multi-channel dispatch | Yes | No | No | N/A |
+| Zero-dep basic mode (macOS) | Yes | No | No | N/A |
+| Three-layer safety | Yes | Partial | No | N/A |
+| Sub-agent parallel dispatch | Yes | No | Manual | No |
+| Site experience memory | Yes | No | No | No |
+| Rich text editor support | Yes | Yes | Yes | No |
+| Multi-agent adapters | 5 agents | Claude only | Framework | Claude only |
 
 ## License
 
