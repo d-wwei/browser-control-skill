@@ -54,7 +54,7 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 
 # Check if proxy is reachable (silent, returns 0/1)
 proxy_ok() {
-  curl -sf --max-time 2 "$PROXY/health" >/dev/null 2>&1
+  curl -s --max-time 2 "$PROXY/health" >/dev/null 2>&1
 }
 
 # Require proxy to be running, or exit with helpful message
@@ -83,7 +83,7 @@ urlencode() {
 # ---------------------------------------------------------------------------
 cmd_health() {
   if proxy_ok; then
-    curl -sf "$PROXY/health" 2>/dev/null
+    curl -s "$PROXY/health" 2>/dev/null
   else
     echo '{"status":"unreachable","proxy":"'"$PROXY"'"}'
     return 1
@@ -92,26 +92,26 @@ cmd_health() {
 
 cmd_targets() {
   require_proxy
-  curl -sf "$PROXY/targets"
+  curl -s "$PROXY/targets"
 }
 
 cmd_new() {
   require_proxy
   local url="${1:-about:blank}"
   local enc_url; enc_url="$(urlencode "$url")"
-  curl -sf "$PROXY/new?url=$enc_url"
+  curl -s "$PROXY/new?url=$enc_url"
 }
 
 cmd_close() {
   require_proxy
   local target="$1"
-  curl -sf "$PROXY/close?target=$target"
+  curl -s "$PROXY/close?target=$target"
 }
 
 cmd_info() {
   require_proxy
   local target="$1"
-  curl -sf "$PROXY/info?target=$target"
+  curl -s "$PROXY/info?target=$target"
 }
 
 cmd_navigate() {
@@ -119,13 +119,13 @@ cmd_navigate() {
   local target="$1"
   local url="$2"
   local enc_url; enc_url="$(urlencode "$url")"
-  curl -sf "$PROXY/navigate?target=$target&url=$enc_url"
+  curl -s "$PROXY/navigate?target=$target&url=$enc_url"
 }
 
 cmd_back() {
   require_proxy
   local target="$1"
-  curl -sf "$PROXY/back?target=$target"
+  curl -s "$PROXY/back?target=$target"
 }
 
 cmd_eval() {
@@ -133,21 +133,21 @@ cmd_eval() {
   local target="$1"
   shift
   local js="$*"
-  curl -sf -X POST "$PROXY/eval?target=$target" -d "$js"
+  curl -s -X POST "$PROXY/eval?target=$target" -d "$js"
 }
 
 cmd_click() {
   require_proxy
   local target="$1"
   local selector="$2"
-  curl -sf -X POST "$PROXY/click?target=$target" -d "$selector"
+  curl -s -X POST "$PROXY/click?target=$target" -d "$selector"
 }
 
 cmd_clickat() {
   require_proxy
   local target="$1"
   local selector="$2"
-  curl -sf -X POST "$PROXY/clickAt?target=$target" -d "$selector"
+  curl -s -X POST "$PROXY/clickAt?target=$target" -d "$selector"
 }
 
 cmd_screenshot() {
@@ -155,7 +155,7 @@ cmd_screenshot() {
   local target="$1"
   local file="$2"
   local enc_file; enc_file="$(urlencode "$file")"
-  curl -sf "$PROXY/screenshot?target=$target&file=$enc_file"
+  curl -s "$PROXY/screenshot?target=$target&file=$enc_file"
 }
 
 cmd_scroll() {
@@ -164,9 +164,9 @@ cmd_scroll() {
   local arg="${2:-500}"
   # If arg is a number, treat as pixel offset; otherwise treat as direction keyword
   if [[ "$arg" =~ ^-?[0-9]+$ ]]; then
-    curl -sf "$PROXY/scroll?target=$target&y=$arg"
+    curl -s "$PROXY/scroll?target=$target&y=$arg"
   else
-    curl -sf "$PROXY/scroll?target=$target&direction=$arg"
+    curl -s "$PROXY/scroll?target=$target&direction=$arg"
   fi
 }
 
@@ -218,7 +218,7 @@ cmd_upload() {
   local body="{\"selector\":$(python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$selector"),\"files\":$json_files}"
 
   local result
-  result=$(curl -sf -X POST "$PROXY/setFiles?target=$target" \
+  result=$(curl -s -X POST "$PROXY/setFiles?target=$target" \
     -H "Content-Type: application/json" \
     -d "$body" 2>/dev/null) && {
     echo "$result"

@@ -89,8 +89,21 @@ jobs:
 
       - name: Start CDP Proxy
         run: |
-          node skills/browser-control/scripts/cdp-proxy.mjs &
-          sleep 2
+          node skills/browser-control/scripts/cdp-proxy.mjs > /tmp/cdp-proxy.log 2>&1 &
+          # Wait for proxy to connect to Chrome
+          for i in $(seq 1 10); do
+            if curl -s http://localhost:3456/health 2>/dev/null | grep -q "ok"; then
+              echo "Proxy ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          curl -s http://localhost:3456/health || echo "Proxy health check failed"
+          curl -s http://localhost:3456/targets || echo "Proxy targets check failed"
 
       - name: Run integration tests
         run: bash tests/test_integration.sh
+
+      - name: Show proxy logs on failure
+        if: failure()
+        run: cat /tmp/cdp-proxy.log 2>/dev/null || echo "No proxy log"
