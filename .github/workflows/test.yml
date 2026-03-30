@@ -70,13 +70,22 @@ jobs:
       - name: Start Chrome headless with remote debugging
         run: |
           google-chrome \
-            --headless \
+            --headless=new \
             --no-sandbox \
             --disable-gpu \
+            --disable-dev-shm-usage \
             --remote-debugging-port=9222 \
             --remote-debugging-address=127.0.0.1 &
-          sleep 3
-          curl -s http://127.0.0.1:9222/json/version || (echo "Chrome failed to start" && exit 1)
+          # Wait for Chrome to be ready (retry up to 15 seconds)
+          for i in $(seq 1 15); do
+            if curl -s http://127.0.0.1:9222/json/version > /dev/null 2>&1; then
+              echo "Chrome ready after ${i}s"
+              curl -s http://127.0.0.1:9222/json/version
+              break
+            fi
+            sleep 1
+          done
+          curl -s http://127.0.0.1:9222/json/version || (echo "Chrome failed to start after 15s" && exit 1)
 
       - name: Start CDP Proxy
         run: |
