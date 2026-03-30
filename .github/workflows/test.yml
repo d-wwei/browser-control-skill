@@ -25,13 +25,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
 
       - name: Install Python dependencies
         run: pip install pytest
 
       - name: Install Node dependencies
-        run: npm ci
+        run: npm install
 
       - name: Run Python CDP helper tests
         run: python3 -m pytest tests/test_cdp_helper.py -v
@@ -59,10 +58,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
 
       - name: Install Node dependencies
-        run: npm ci
+        run: npm install
 
       - name: Install Chrome
         uses: browser-actions/setup-chrome@v1
@@ -78,7 +76,6 @@ jobs:
             --remote-debugging-port=9222 \
             --remote-debugging-address=127.0.0.1 &
           sleep 3
-          # Verify Chrome is listening
           curl -s http://127.0.0.1:9222/json/version || (echo "Chrome failed to start" && exit 1)
 
       - name: Start CDP Proxy
