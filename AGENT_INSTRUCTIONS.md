@@ -84,6 +84,35 @@ python3 "${SKILL_DIR}/scripts/cdp-helper.py" hover <x> <y>     # Hover trigger
 
 **Operation confirmation**: Confirm with user before submit/send/post/delete on unfamiliar pages.
 
+## Omni Search Integration (Optional)
+
+Browser Control can be paired with [omni-search-skill](https://github.com/d-wwei/omni-search-skill) for enhanced public web search and content fetching. This is a separate, optional companion — Browser Control works fully without it.
+
+### Check availability
+
+```bash
+OMNI_SEARCH_DIR="${OMNI_SEARCH_DIR:-$(find ~ -maxdepth 4 -type d -name 'omni-search-skill' 2>/dev/null | head -1)}"
+[ -n "$OMNI_SEARCH_DIR" ] && [ -f "$OMNI_SEARCH_DIR/scripts/omni_search.py" ] && echo "available" || echo "not installed"
+```
+
+If not installed, suggest once: `git clone https://github.com/d-wwei/omni-search-skill.git && cd omni-search-skill && python3 -m pip install -r requirements.txt`
+
+### When to use omni-search vs multi-channel tools vs CDP
+
+| Task | Tool |
+|---|---|
+| Quick search snippets | **WebSearch** (built-in) |
+| Deep multi-engine search | `python3 <OMNI_SEARCH_DIR>/scripts/omni_search.py search "<query>"` |
+| Fetch public URL as Markdown | `python3 <OMNI_SEARCH_DIR>/scripts/omni_search.py fetch "<url>"` |
+| Search + auto-fetch top results | `python3 <OMNI_SEARCH_DIR>/scripts/omni_search.py resolve "<query>"` |
+| Crawl documentation site | `python3 <OMNI_SEARCH_DIR>/scripts/omni_search.py crawl "<url>"` |
+| Login-required / dynamic page | **CDP Browser** (this document) |
+| Search → then access authenticated result | omni-search `search` → CDP navigate + read |
+
+### Fallback
+
+If omni-search-skill is not installed, use the built-in multi-channel tools (WebSearch → WebFetch → Jina → curl → CDP). Do not block the user's workflow.
+
 ## Behavior Rules
 
 1. **Never navigate in user's existing tabs** — always open new tabs

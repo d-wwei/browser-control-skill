@@ -123,6 +123,28 @@ WebSearch → WebFetch → Jina → curl → CDP 浏览器
 
 简单搜索用 WebSearch，提取公开页面用 WebFetch，需要省 Token 用 Jina 转 Markdown。只有需要登录态、需要交互、或者轻量工具搞不定的时候，才启动浏览器。
 
+### 搭档：Omni Search Skill（可选）
+
+五级通道中的搜索和抓取能力还可以进一步增强。[omni-search-skill](https://github.com/d-wwei/omni-search-skill) 是一个独立的全栈搜索技能，支持 12 个搜索引擎、智能路由、自动抓取，可以作为 Browser Control Skill 的可选搭档子技能。
+
+- **解耦设计** — 独立仓库，单独安装、单独 `git pull` 更新，Browser Control Skill 不包含它的任何代码
+- **自动检测** — Agent 首次使用时自动检测本地是否已安装，未安装则建议一次，不阻塞
+- **优雅降级** — 未安装时退回使用 WebSearch / WebFetch 等内置工具
+
+```bash
+git clone https://github.com/d-wwei/omni-search-skill.git
+cd omni-search-skill && python3 -m pip install -r requirements.txt
+```
+
+| 场景 | 工具 |
+|---|---|
+| 多引擎深度搜索 | omni-search-skill `search` |
+| 抓取公开 URL 转 Markdown | omni-search-skill `fetch` |
+| 搜索 + 自动抓取 Top 结果 | omni-search-skill `resolve` |
+| 爬取文档站点 | omni-search-skill `crawl` |
+| 访问需登录的页面 | Browser Control（CDP / AppleScript） |
+| 先搜索，再访问登录态结果 | omni-search `search` → Browser Control 导航 + 读取 |
+
 ---
 
 ## 并行调研：5 个目标同时查

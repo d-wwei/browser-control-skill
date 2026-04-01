@@ -37,6 +37,24 @@ Control the user's real Chrome browser with full login session inheritance. Mult
 - Rich interactions: React/Vue apps, rich text editors, file pickers, dropdowns
 - Parallel research: dispatch sub-agents to investigate multiple targets simultaneously
 
+## Companion Sub-Skill: Web Search
+
+For enhanced public web search, the companion **web-search** sub-skill (powered by [omni-search-skill](https://github.com/d-wwei/omni-search-skill)) provides multi-engine search, fetch, resolve, and crawl — stronger than built-in WebSearch/WebFetch.
+
+On first use, check availability:
+
+```bash
+OMNI_SEARCH_DIR="${OMNI_SEARCH_DIR:-$(find ~ -maxdepth 4 -type d -name 'omni-search-skill' 2>/dev/null | head -1)}"
+[ -n "$OMNI_SEARCH_DIR" ] && [ -f "$OMNI_SEARCH_DIR/scripts/omni_search.py" ] && echo "available" || echo "not installed"
+```
+
+If not installed, suggest once:
+
+> 💡 For enhanced web search, consider installing omni-search-skill:
+> `git clone https://github.com/d-wwei/omni-search-skill.git && cd omni-search-skill && python3 -m pip install -r requirements.txt`
+
+Do not block on this — built-in multi-channel tools (WebSearch → WebFetch → Jina → curl → CDP) work without it. Only suggest once per session.
+
 ---
 
 ## Browsing Philosophy
